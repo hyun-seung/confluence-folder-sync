@@ -14,7 +14,7 @@ async function publicationReview(app, client, profile, tree, catalog) {
   const publisher = new Publisher(client, app, profile, async () => {});
   const folders = new Map([[config.source, { id: config.folderId }]]);
   const ids = new Map(Object.entries(profile.pages)
-    .filter(([key, entry]) => key.startsWith("file:") && entry.id && catalog.has(entry.id))
+    .filter(([key, entry]) => key.startsWith("file:" + config.source + "/") && entry.id && catalog.has(entry.id))
     .map(([key, entry]) => [key.slice(5), entry.id]));
   for (const path of tree.folders) {
     const parent = folders.get(parentPath(path));
@@ -32,6 +32,7 @@ async function publicationReview(app, client, profile, tree, catalog) {
     const entry = profile.pages["file:" + note.path];
     const parent = folders.get(parentPath(note.path));
     const row = { path: note.path, inputHash: note.inputHash, title: note.title, id: entry?.id ?? null,
+      renamedFrom: entry?.renamedFrom ?? null,
       dependencies: Array.from(new Set(note.dependencies.filter(path => path !== note.path && !ids.has(path)))) };
     try {
       if (parent?.error) throw parent.error;
@@ -40,7 +41,8 @@ async function publicationReview(app, client, profile, tree, catalog) {
       row.version = page?.version.number ?? null;
       row.parent = page ? String(page.parentId) : null;
       row.outputHash = await digest(resolvedStorage(note, app, client, ids));
-      row.status = !page ? "New" : entry.creating || entry.pending ? "Changed" :
+      row.status = !page ? "New" : entry.creating || entry.pending ||
+        page.title !== note.title || String(page.parentId) !== parent?.id ? "Changed" :
         entry.migratedInputHash === note.inputHash ||
         row.outputHash === entry.bodyHash ? "Unchanged" : "Changed";
     } catch (error) {
@@ -167,7 +169,7 @@ class PublicationModal extends Modal {
     rowsEl.empty();
     const query = normalized(this.filter ?? "").trim().toLowerCase();
     for (const row of this.review.rows.filter(item => normalized(item.path).toLowerCase().includes(query))) {
-      const description = row.reason ?? (row.dependencies.length ?
+      const description = row.reason ?? (row.renamedFrom ? t("Linked page moved from {path}", { path: row.renamedFrom }) : row.dependencies.length ?
         t("Also required: {paths}", { paths: row.dependencies.join(", ") }) : row.id ? "Confluence " + row.id + " · v" + row.version : "");
       new Setting(rowsEl).setName(t(row.status) + " · " + row.path).setDesc(description)
         .addToggle(toggle => toggle.setValue(this.selection.has(row.path))

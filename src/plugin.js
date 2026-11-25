@@ -74,6 +74,12 @@ class ConfluenceFolderSync extends Plugin {
     const stored = await this.loadData() ?? {};
     this.data = { settings: { ...DEFAULT_SETTINGS, ...stored.settings }, profiles: stored.profiles ?? {} };
     this.saving = Promise.resolve();
+    this.renameEvents = [];
+    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+      this.renameEvents.push({ oldPath, newPath: file.path });
+      if (!this.running) void this.applyRenames().catch(error =>
+        new Notice(localizedError(error, this.language), 12000));
+    }));
     this.addSettingTab(new SyncSettings(this));
     const openDashboard = () => new SyncDashboard(this).open();
     this.ribbon = this.addRibbonIcon("arrow-right-left", this.t("Open Confluence sync dashboard"), openDashboard);
@@ -110,6 +116,26 @@ class ConfluenceFolderSync extends Plugin {
     return saved;
   }
 
+  applyRenames() {
+    if (this.applyingRenames) return this.applyingRenames;
+    if (!this.renameEvents.length) return Promise.resolve();
+    this.applyingRenames = (async () => {
+      while (this.renameEvents.length) {
+        const event = this.renameEvents[0];
+        const previous = structuredClone(this.data.profiles);
+        try {
+          for (const profile of Object.values(this.data.profiles)) rekeySource(profile, event.oldPath, event.newPath);
+          await this.persist();
+          this.renameEvents.shift();
+        } catch (error) {
+          this.data.profiles = previous;
+          throw error;
+        }
+      }
+    })().finally(() => { this.applyingRenames = null; });
+    return this.applyingRenames;
+  }
+
   async configure(key, value) {
     this.data.settings[key] = value;
     try {
@@ -126,6 +152,8 @@ class ConfluenceFolderSync extends Plugin {
 
   async withConnection(task) {
     if (this.running) throw new Error("A Confluence command is already running in this vault.");
+    await this.applyRenames();
+    if (this.running) throw new Error("A Confluence command is already running in this vault.");
     this.running = true;
     try {
       await this.saving;
@@ -139,6 +167,7 @@ class ConfluenceFolderSync extends Plugin {
       return await task({ client, folder, config, profile, save: () => this.persist() });
     } finally {
       this.running = false;
+      await this.applyRenames();
     }
   }
 

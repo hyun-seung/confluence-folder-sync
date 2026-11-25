@@ -2,6 +2,8 @@
 
 // English messages are stable translation keys. Interpolate values only after lookup.
 const KOREAN = {
+  "A moved note already has another page mapping. Resolve its link first.": "이동한 노트 경로에 다른 페이지 연결이 있습니다. 연결을 먼저 확인하세요.",
+  "Linked page moved from {path}": "기존 페이지 연결을 유지한 이동 — {path}",
   "Resolve text conflict": "본문 충돌 해결",
   "Resolve page moves or title changes before resolving text.": "본문 충돌을 해결하기 전에 페이지 위치와 제목 변경을 확인하세요.",
   "The Confluence page changed. Review the conflict again.": "Confluence 페이지가 변경되었습니다. 충돌 내용을 다시 검토하세요.",
@@ -508,13 +510,17 @@ class ConfluenceCloud {
     return (await this.call("POST", API + `/${kind}s`, { json })).json;
   }
 
-  async update(page, body, message) {
+  async update(page, body, message, destination) {
     const id = numericId(page.id);
     const json = {
       id, title: page.title, status: "current",
       body: { representation: "storage", value: body },
       version: { number: page.version.number + 1, message, minorEdit: true },
     };
+    if (destination) {
+      json.title = destination.title;
+      json.parentId = numericId(destination.parent);
+    }
     return (await this.call("PUT", API + "/pages/" + id, { json })).json;
   }
 
@@ -1008,11 +1014,23 @@ class Publisher {
   async inspect(kind, entries, key, title, parent, catalog) {
     const recorded = entries[key];
     if (recorded?.id) {
-      if (!parent || !catalog.has(recorded.id)) throw new SyncError("A mapped item is outside the configured folder: {title}", { title });
+      if ((!parent && !(kind === "page" && recorded.renamedFrom)) || !catalog.has(recorded.id)) {
+        throw new SyncError("A mapped item is outside the configured folder: {title}", { title });
+      }
       const remote = kind === "page" ? await this.client.page(recorded.id) :
         await this.client.get(API + "/folders/" + recorded.id);
-      confirmParent(kind, remote, recorded, parent, title, this.client.spaceId);
+      const recovery = kind === "page" && recorded.pending && remote.version.number === recorded.version + 1 &&
+        remote.version.message === recorded.pending.message;
+      const expectedParent = recovery ? recorded.pending.parent ?? parent : recorded.renamedFrom ? recorded.parent : parent;
+      const expectedTitle = recovery ? recorded.pending.title ?? title : recorded.renamedFrom ? recorded.title : title;
+      confirmParent(kind, remote, recorded, expectedParent, expectedTitle, this.client.spaceId);
       if (kind === "page") validateVersion(remote, recorded);
+      if (kind === "page" && recorded.renamedFrom && title !== remote.title) {
+        const matches = await this.client.pageTitles(title);
+        if (matches.some(item => String(item.id) !== recorded.id)) {
+          throw new SyncError("An existing Confluence item is not linked to this source: {title}", { title });
+        }
+      }
       return remote;
     }
 
@@ -1080,7 +1098,7 @@ class Publisher {
   async publish(tree, catalog, control = {}) {
     const folders = new Map([[this.client.config.source, this.client.config.folderId]]);
     const ids = new Map(Object.entries(this.profile.pages)
-      .filter(([key, entry]) => key.startsWith("file:") && entry.id && catalog.has(entry.id))
+      .filter(([key, entry]) => key.startsWith("file:" + this.client.config.source + "/") && entry.id && catalog.has(entry.id))
       .map(([key, entry]) => [key.slice(5), entry.id]));
     for (const path of tree.folders) {
       await control.check?.();
@@ -1099,19 +1117,30 @@ class Publisher {
       await control.check?.(note);
       const entry = this.profile.pages["file:" + note.file.path];
       const page = await this.client.page(entry.id);
-      confirmParent("page", page, entry, folders.get(parentPath(note.file.path)), note.title, this.client.spaceId);
+      const parent = folders.get(parentPath(note.file.path));
+      const recovery = entry.pending && page.version.number === entry.version + 1 && page.version.message === entry.pending.message;
+      confirmParent("page", page, entry, recovery ? entry.pending.parent ?? parent : entry.renamedFrom ? entry.parent : parent,
+        recovery ? entry.pending.title ?? note.title : entry.renamedFrom ? entry.title : note.title, this.client.spaceId);
       if (validateVersion(page, entry)) {
+        const recoveredInput = entry.pending.preserveMigrated ? entry.pending.inputHash : null;
         entry.version = page.version.number;
         entry.bodyHash = entry.pending.bodyHash;
         entry.sourceHash = entry.pending.sourceHash;
+        entry.title = entry.pending.title ?? note.title;
+        entry.parent = entry.pending.parent ?? parent;
         delete entry.pending;
-        delete entry.migratedInputHash;
+        if (recoveredInput) entry.migratedInputHash = recoveredInput;
+        else delete entry.migratedInputHash;
+        delete entry.renamedFrom;
         await this.save();
       }
-      if (entry.migratedInputHash === note.inputHash) continue;
-      const body = resolvedStorage(note, this.app, this.client, ids);
+      const relocation = page.title !== note.title || String(page.parentId) !== parent;
+      const preserveMigrated = entry.migratedInputHash === note.inputHash;
+      if (entry.migratedInputHash === note.inputHash && !relocation) continue;
+      const body = entry.migratedInputHash === note.inputHash ? await checkedBody(this.client, page) :
+        resolvedStorage(note, this.app, this.client, ids);
       const bodyHash = await digest(body);
-      if (bodyHash === entry.bodyHash) {
+      if (bodyHash === entry.bodyHash && !relocation) {
         if (entry.sourceHash !== note.sourceHash) {
           entry.sourceHash = note.sourceHash;
           entry.inputHash = note.inputHash;
@@ -1131,10 +1160,12 @@ class Publisher {
         }
       }
       const message = "Confluence Folder Sync " + entry.ticket + " " + bodyHash.slice(0, 24);
-      entry.pending = { bodyHash, sourceHash: note.sourceHash, message };
+      entry.pending = { bodyHash, sourceHash: note.sourceHash, message, title: note.title, parent,
+        preserveMigrated, inputHash: note.inputHash };
       await this.save();
-      const result = await this.client.update(page, body, message);
-      if (numericId(result.id) !== entry.id || result.version.number !== page.version.number + 1) {
+      const result = await this.client.update(page, body, message, relocation ? { title: note.title, parent } : undefined);
+      if (numericId(result.id) !== entry.id || result.version.number !== page.version.number + 1 ||
+          (relocation && (result.title !== note.title || String(result.parentId) !== parent))) {
         throw new Error("Confluence did not confirm the expected update.");
       }
       if (!entry.remoteAttachments || assets.length) {
@@ -1152,8 +1183,11 @@ class Publisher {
       entry.bodyHash = bodyHash;
       entry.sourceHash = note.sourceHash;
       entry.inputHash = note.inputHash;
+      entry.title = note.title;
+      entry.parent = parent;
       delete entry.pending;
-      delete entry.migratedInputHash;
+      if (!preserveMigrated) delete entry.migratedInputHash;
+      delete entry.renamedFrom;
       await this.save();
       changed++;
     }
@@ -1309,7 +1343,8 @@ async function incoming(app, client, catalog, profile, save, importNew) {
   const language = client.config.language ?? "en";
   const t = (message, values) => translate(language, message, values);
   const { trails, pages } = await remotePages(client, catalog);
-  const linked = new Map(Object.entries(profile.pages).filter(([, entry]) => entry.id).map(([key, entry]) =>
+  const linked = new Map(Object.entries(profile.pages).filter(([key, entry]) =>
+    key.startsWith("file:" + client.config.source + "/") && entry.id).map(([key, entry]) =>
     [entry.id, { ...entry, path: key.slice(5) }]));
   const changes = [];
   let newCount = 0;
@@ -1583,7 +1618,7 @@ async function publicationReview(app, client, profile, tree, catalog) {
   const publisher = new Publisher(client, app, profile, async () => {});
   const folders = new Map([[config.source, { id: config.folderId }]]);
   const ids = new Map(Object.entries(profile.pages)
-    .filter(([key, entry]) => key.startsWith("file:") && entry.id && catalog.has(entry.id))
+    .filter(([key, entry]) => key.startsWith("file:" + config.source + "/") && entry.id && catalog.has(entry.id))
     .map(([key, entry]) => [key.slice(5), entry.id]));
   for (const path of tree.folders) {
     const parent = folders.get(parentPath(path));
@@ -1601,6 +1636,7 @@ async function publicationReview(app, client, profile, tree, catalog) {
     const entry = profile.pages["file:" + note.path];
     const parent = folders.get(parentPath(note.path));
     const row = { path: note.path, inputHash: note.inputHash, title: note.title, id: entry?.id ?? null,
+      renamedFrom: entry?.renamedFrom ?? null,
       dependencies: Array.from(new Set(note.dependencies.filter(path => path !== note.path && !ids.has(path)))) };
     try {
       if (parent?.error) throw parent.error;
@@ -1609,7 +1645,8 @@ async function publicationReview(app, client, profile, tree, catalog) {
       row.version = page?.version.number ?? null;
       row.parent = page ? String(page.parentId) : null;
       row.outputHash = await digest(resolvedStorage(note, app, client, ids));
-      row.status = !page ? "New" : entry.creating || entry.pending ? "Changed" :
+      row.status = !page ? "New" : entry.creating || entry.pending ||
+        page.title !== note.title || String(page.parentId) !== parent?.id ? "Changed" :
         entry.migratedInputHash === note.inputHash ||
         row.outputHash === entry.bodyHash ? "Unchanged" : "Changed";
     } catch (error) {
@@ -1736,7 +1773,7 @@ class PublicationModal extends Modal {
     rowsEl.empty();
     const query = normalized(this.filter ?? "").trim().toLowerCase();
     for (const row of this.review.rows.filter(item => normalized(item.path).toLowerCase().includes(query))) {
-      const description = row.reason ?? (row.dependencies.length ?
+      const description = row.reason ?? (row.renamedFrom ? t("Linked page moved from {path}", { path: row.renamedFrom }) : row.dependencies.length ?
         t("Also required: {paths}", { paths: row.dependencies.join(", ") }) : row.id ? "Confluence " + row.id + " · v" + row.version : "");
       new Setting(rowsEl).setName(t(row.status) + " · " + row.path).setDesc(description)
         .addToggle(toggle => toggle.setValue(this.selection.has(row.path))
@@ -1933,6 +1970,30 @@ class ConflictModal extends Modal {
       if (this.opened) this.render();
     }
   }
+}
+
+function rekeySource(profile, oldPath, newPath) {
+  const moves = Object.entries(profile.pages).filter(([key]) => key.startsWith("file:") &&
+    pathIn(key.slice(5), oldPath)).map(([key, entry]) => ({
+      key, entry, next: "file:" + newPath + key.slice(5 + oldPath.length),
+    }));
+  const moving = new Set(moves.map(item => item.key));
+  for (const item of moves) {
+    if (profile.pages[item.next] && !moving.has(item.next)) {
+      throw new Error("A moved note already has another page mapping. Resolve its link first.");
+    }
+  }
+  for (const item of moves) delete profile.pages[item.key];
+  for (const item of moves) {
+    item.entry.renamedFrom ??= item.key.slice(5);
+    profile.pages[item.next] = item.entry;
+  }
+  // Folder titles cannot be changed through the v2 Folder API. Rebuild only the
+  // selected destination branches, reparent pages, and preserve old folders.
+  for (const key of Object.keys(profile.folders)) {
+    if (key.startsWith("dir:") && pathIn(key.slice(4), oldPath)) delete profile.folders[key];
+  }
+  return moves.length;
 }
 
 class SyncDashboard extends Modal {
@@ -2289,6 +2350,12 @@ class ConfluenceFolderSync extends Plugin {
     const stored = await this.loadData() ?? {};
     this.data = { settings: { ...DEFAULT_SETTINGS, ...stored.settings }, profiles: stored.profiles ?? {} };
     this.saving = Promise.resolve();
+    this.renameEvents = [];
+    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+      this.renameEvents.push({ oldPath, newPath: file.path });
+      if (!this.running) void this.applyRenames().catch(error =>
+        new Notice(localizedError(error, this.language), 12000));
+    }));
     this.addSettingTab(new SyncSettings(this));
     const openDashboard = () => new SyncDashboard(this).open();
     this.ribbon = this.addRibbonIcon("arrow-right-left", this.t("Open Confluence sync dashboard"), openDashboard);
@@ -2325,6 +2392,26 @@ class ConfluenceFolderSync extends Plugin {
     return saved;
   }
 
+  applyRenames() {
+    if (this.applyingRenames) return this.applyingRenames;
+    if (!this.renameEvents.length) return Promise.resolve();
+    this.applyingRenames = (async () => {
+      while (this.renameEvents.length) {
+        const event = this.renameEvents[0];
+        const previous = structuredClone(this.data.profiles);
+        try {
+          for (const profile of Object.values(this.data.profiles)) rekeySource(profile, event.oldPath, event.newPath);
+          await this.persist();
+          this.renameEvents.shift();
+        } catch (error) {
+          this.data.profiles = previous;
+          throw error;
+        }
+      }
+    })().finally(() => { this.applyingRenames = null; });
+    return this.applyingRenames;
+  }
+
   async configure(key, value) {
     this.data.settings[key] = value;
     try {
@@ -2341,6 +2428,8 @@ class ConfluenceFolderSync extends Plugin {
 
   async withConnection(task) {
     if (this.running) throw new Error("A Confluence command is already running in this vault.");
+    await this.applyRenames();
+    if (this.running) throw new Error("A Confluence command is already running in this vault.");
     this.running = true;
     try {
       await this.saving;
@@ -2354,6 +2443,7 @@ class ConfluenceFolderSync extends Plugin {
       return await task({ client, folder, config, profile, save: () => this.persist() });
     } finally {
       this.running = false;
+      await this.applyRenames();
     }
   }
 

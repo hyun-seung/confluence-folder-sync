@@ -1,5 +1,7 @@
 // English messages are stable translation keys. Interpolate values only after lookup.
 const KOREAN = {
+  "A moved note already has another page mapping. Resolve its link first.": "이동한 노트 경로에 다른 페이지 연결이 있습니다. 연결을 먼저 확인하세요.",
+  "Linked page moved from {path}": "기존 페이지 연결을 유지한 이동 — {path}",
   "Resolve text conflict": "본문 충돌 해결",
   "Resolve page moves or title changes before resolving text.": "본문 충돌을 해결하기 전에 페이지 위치와 제목 변경을 확인하세요.",
   "The Confluence page changed. Review the conflict again.": "Confluence 페이지가 변경되었습니다. 충돌 내용을 다시 검토하세요.",

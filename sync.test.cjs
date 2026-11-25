@@ -7,7 +7,7 @@ const fromBundle = new Function("require", "module",
   "ConfluenceCloud, Publisher, preparedNotes, pageTrails, digest, lineChange, fromStorage, " +
   "attachmentInventory, attachmentDiff, reviewHunks, matchHunk, mergeSelected, applyLocalReview, " +
   "KOREAN, syncLanguage, translate, localizedError, SyncError, ApiError, publicationReview, publishSelection, " +
-  "resolveConflict, publicationTarget };");
+  "resolveConflict, publicationTarget, rekeySource };");
 const fakeModule = { exports: {} };
 const lib = fromBundle(() => ({ Plugin: class {}, PluginSettingTab: class {}, Modal: class {} }), fakeModule);
 const fixtureConfig = {
@@ -116,11 +116,12 @@ function memoryCloud(config) {
       stats.creates++;
       return structuredClone(item);
     },
-    update: async (page, value, message) => {
+    update: async (page, value, message, destination) => {
       const item = records.get(page.id);
       assert.equal(page.version.number, item.version.number);
       item.version = { number: page.version.number + 1, message };
       item.body.storage.value = value;
+      if (destination) { item.title = destination.title; item.parentId = destination.parent; }
       stats.updates++;
       return structuredClone(item);
     },
@@ -447,4 +448,40 @@ test("conflict resolution rejects remote races and preserves a blocking baseline
   assert.deepEqual(entry, prior);
   assert.equal(bodies.get(conflict.path), "resolution");
   assert.ok(Array.from(bodies).some(([path, text]) => path.includes("/Backups/") && text === conflict.original));
+});
+
+test("local file and folder moves preserve page IDs and publish only the selected destination branch", async () => {
+  const { files, bodies, profile, remote, review, publish } = selectionFixture();
+  await publish(await review(), ["Docs/One.md", "Docs/Two.md"]);
+  const id = profile.pages["file:Docs/One.md"].id;
+  const file = files.find(item => item.basename === "One");
+  const old = file.path;
+  file.path = "Docs/Renamed/First.md"; file.basename = "First";
+  bodies.set(file.path, bodies.get(old)); bodies.delete(old);
+  assert.equal(lib.rekeySource(profile, old, file.path), 1);
+  const plan = await review();
+  assert.equal(plan.rows.find(row => row.path === file.path).status, "Changed");
+  await publish(plan, [file.path]);
+  assert.equal(profile.pages["file:" + file.path].id, id);
+  assert.equal(remote.records.get(id).title, "First");
+  assert.equal(remote.records.get(id).parentId, profile.folders["dir:Docs/Renamed"].id);
+  assert.equal(remote.records.size, 3);
+  assert.equal((await review()).rows.find(row => row.id === id).status, "Unchanged");
+  const previousFolder = profile.folders["dir:Docs/Renamed"].id;
+  const next = "Docs/Other/First.md";
+  bodies.set(next, bodies.get(file.path)); bodies.delete(file.path); file.path = next;
+  lib.rekeySource(profile, "Docs/Renamed", "Docs/Other");
+  await publish(await review(), [next]);
+  assert.equal(profile.pages["file:" + next].id, id);
+  assert.ok(remote.records.has(previousFolder));
+});
+
+test("rename mapping collisions are atomic and moves outside the source cannot publish their files", async () => {
+  const profile = { pages: { "file:Docs/One.md": { id: "1" }, "file:Docs/Two.md": { id: "2" } }, folders: {} };
+  const before = structuredClone(profile);
+  assert.throws(() => lib.rekeySource(profile, "Docs/One.md", "Docs/Two.md"), /another page mapping/);
+  assert.deepEqual(profile, before);
+  lib.rekeySource(profile, "Docs/One.md", "Other/One.md");
+  assert.equal(profile.pages["file:Other/One.md"].id, "1");
+  assert.ok(!profile.pages["file:Docs/One.md"]);
 });

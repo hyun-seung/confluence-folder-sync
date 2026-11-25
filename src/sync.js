@@ -131,11 +131,23 @@ class Publisher {
   async inspect(kind, entries, key, title, parent, catalog) {
     const recorded = entries[key];
     if (recorded?.id) {
-      if (!parent || !catalog.has(recorded.id)) throw new SyncError("A mapped item is outside the configured folder: {title}", { title });
+      if ((!parent && !(kind === "page" && recorded.renamedFrom)) || !catalog.has(recorded.id)) {
+        throw new SyncError("A mapped item is outside the configured folder: {title}", { title });
+      }
       const remote = kind === "page" ? await this.client.page(recorded.id) :
         await this.client.get(API + "/folders/" + recorded.id);
-      confirmParent(kind, remote, recorded, parent, title, this.client.spaceId);
+      const recovery = kind === "page" && recorded.pending && remote.version.number === recorded.version + 1 &&
+        remote.version.message === recorded.pending.message;
+      const expectedParent = recovery ? recorded.pending.parent ?? parent : recorded.renamedFrom ? recorded.parent : parent;
+      const expectedTitle = recovery ? recorded.pending.title ?? title : recorded.renamedFrom ? recorded.title : title;
+      confirmParent(kind, remote, recorded, expectedParent, expectedTitle, this.client.spaceId);
       if (kind === "page") validateVersion(remote, recorded);
+      if (kind === "page" && recorded.renamedFrom && title !== remote.title) {
+        const matches = await this.client.pageTitles(title);
+        if (matches.some(item => String(item.id) !== recorded.id)) {
+          throw new SyncError("An existing Confluence item is not linked to this source: {title}", { title });
+        }
+      }
       return remote;
     }
 
@@ -203,7 +215,7 @@ class Publisher {
   async publish(tree, catalog, control = {}) {
     const folders = new Map([[this.client.config.source, this.client.config.folderId]]);
     const ids = new Map(Object.entries(this.profile.pages)
-      .filter(([key, entry]) => key.startsWith("file:") && entry.id && catalog.has(entry.id))
+      .filter(([key, entry]) => key.startsWith("file:" + this.client.config.source + "/") && entry.id && catalog.has(entry.id))
       .map(([key, entry]) => [key.slice(5), entry.id]));
     for (const path of tree.folders) {
       await control.check?.();
@@ -222,19 +234,30 @@ class Publisher {
       await control.check?.(note);
       const entry = this.profile.pages["file:" + note.file.path];
       const page = await this.client.page(entry.id);
-      confirmParent("page", page, entry, folders.get(parentPath(note.file.path)), note.title, this.client.spaceId);
+      const parent = folders.get(parentPath(note.file.path));
+      const recovery = entry.pending && page.version.number === entry.version + 1 && page.version.message === entry.pending.message;
+      confirmParent("page", page, entry, recovery ? entry.pending.parent ?? parent : entry.renamedFrom ? entry.parent : parent,
+        recovery ? entry.pending.title ?? note.title : entry.renamedFrom ? entry.title : note.title, this.client.spaceId);
       if (validateVersion(page, entry)) {
+        const recoveredInput = entry.pending.preserveMigrated ? entry.pending.inputHash : null;
         entry.version = page.version.number;
         entry.bodyHash = entry.pending.bodyHash;
         entry.sourceHash = entry.pending.sourceHash;
+        entry.title = entry.pending.title ?? note.title;
+        entry.parent = entry.pending.parent ?? parent;
         delete entry.pending;
-        delete entry.migratedInputHash;
+        if (recoveredInput) entry.migratedInputHash = recoveredInput;
+        else delete entry.migratedInputHash;
+        delete entry.renamedFrom;
         await this.save();
       }
-      if (entry.migratedInputHash === note.inputHash) continue;
-      const body = resolvedStorage(note, this.app, this.client, ids);
+      const relocation = page.title !== note.title || String(page.parentId) !== parent;
+      const preserveMigrated = entry.migratedInputHash === note.inputHash;
+      if (entry.migratedInputHash === note.inputHash && !relocation) continue;
+      const body = entry.migratedInputHash === note.inputHash ? await checkedBody(this.client, page) :
+        resolvedStorage(note, this.app, this.client, ids);
       const bodyHash = await digest(body);
-      if (bodyHash === entry.bodyHash) {
+      if (bodyHash === entry.bodyHash && !relocation) {
         if (entry.sourceHash !== note.sourceHash) {
           entry.sourceHash = note.sourceHash;
           entry.inputHash = note.inputHash;
@@ -254,10 +277,12 @@ class Publisher {
         }
       }
       const message = "Confluence Folder Sync " + entry.ticket + " " + bodyHash.slice(0, 24);
-      entry.pending = { bodyHash, sourceHash: note.sourceHash, message };
+      entry.pending = { bodyHash, sourceHash: note.sourceHash, message, title: note.title, parent,
+        preserveMigrated, inputHash: note.inputHash };
       await this.save();
-      const result = await this.client.update(page, body, message);
-      if (numericId(result.id) !== entry.id || result.version.number !== page.version.number + 1) {
+      const result = await this.client.update(page, body, message, relocation ? { title: note.title, parent } : undefined);
+      if (numericId(result.id) !== entry.id || result.version.number !== page.version.number + 1 ||
+          (relocation && (result.title !== note.title || String(result.parentId) !== parent))) {
         throw new Error("Confluence did not confirm the expected update.");
       }
       if (!entry.remoteAttachments || assets.length) {
@@ -275,8 +300,11 @@ class Publisher {
       entry.bodyHash = bodyHash;
       entry.sourceHash = note.sourceHash;
       entry.inputHash = note.inputHash;
+      entry.title = note.title;
+      entry.parent = parent;
       delete entry.pending;
-      delete entry.migratedInputHash;
+      if (!preserveMigrated) delete entry.migratedInputHash;
+      delete entry.renamedFrom;
       await this.save();
       changed++;
     }
@@ -432,7 +460,8 @@ async function incoming(app, client, catalog, profile, save, importNew) {
   const language = client.config.language ?? "en";
   const t = (message, values) => translate(language, message, values);
   const { trails, pages } = await remotePages(client, catalog);
-  const linked = new Map(Object.entries(profile.pages).filter(([, entry]) => entry.id).map(([key, entry]) =>
+  const linked = new Map(Object.entries(profile.pages).filter(([key, entry]) =>
+    key.startsWith("file:" + client.config.source + "/") && entry.id).map(([key, entry]) =>
     [entry.id, { ...entry, path: key.slice(5) }]));
   const changes = [];
   let newCount = 0;

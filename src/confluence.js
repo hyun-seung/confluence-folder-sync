@@ -272,13 +272,17 @@ class ConfluenceCloud {
     return (await this.call("POST", API + `/${kind}s`, { json })).json;
   }
 
-  async update(page, body, message) {
+  async update(page, body, message, destination) {
     const id = numericId(page.id);
     const json = {
       id, title: page.title, status: "current",
       body: { representation: "storage", value: body },
       version: { number: page.version.number + 1, message, minorEdit: true },
     };
+    if (destination) {
+      json.title = destination.title;
+      json.parentId = numericId(destination.parent);
+    }
     return (await this.call("PUT", API + "/pages/" + id, { json })).json;
   }
 
