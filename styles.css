@@ -16,6 +16,33 @@
   overflow-wrap: anywhere;
 }
 
+.cfs-conflict-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--size-4-2);
+}
+
+.cfs-conflict-columns pre {
+  max-height: 24vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--code-background);
+  padding: var(--size-4-2);
+}
+
+.cfs-resolution {
+  width: 100%;
+  min-height: 22vh;
+  font-family: var(--font-monospace);
+}
+
+@media (max-width: 700px) {
+  .cfs-conflict-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
 .cfs-dashboard .cfs-diff {
   background-color: var(--code-background);
   border: 1px solid var(--background-modifier-border);

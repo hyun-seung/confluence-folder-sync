@@ -6,7 +6,8 @@ const fromBundle = new Function("require", "module",
   readFileSync("main.js", "utf8") + "\nreturn { validatedConfig, vaultPath, markdownLines, toStorage, " +
   "ConfluenceCloud, Publisher, preparedNotes, pageTrails, digest, lineChange, fromStorage, " +
   "attachmentInventory, attachmentDiff, reviewHunks, matchHunk, mergeSelected, applyLocalReview, " +
-  "KOREAN, syncLanguage, translate, localizedError, SyncError, ApiError, publicationReview, publishSelection };");
+  "KOREAN, syncLanguage, translate, localizedError, SyncError, ApiError, publicationReview, publishSelection, " +
+  "resolveConflict, publicationTarget };");
 const fakeModule = { exports: {} };
 const lib = fromBundle(() => ({ Plugin: class {}, PluginSettingTab: class {}, Modal: class {} }), fakeModule);
 const fixtureConfig = {
@@ -399,4 +400,51 @@ test("one conflicting page cannot block an unrelated selected change and remote 
   remote.records.get(two).version.number++;
   await assert.rejects(publish(stale, ["Docs/Two.md"]), /changed/);
   assert.equal(remote.stats.updates, updates);
+});
+
+async function conflictFixture() {
+  const fixture = selectionFixture();
+  const { app, remote, profile, bodies, review, publish, config } = fixture;
+  app.workspace = { getLeavesOfType: () => [] };
+  app.vault.create = async (path, text) => { assert.ok(!bodies.has(path)); bodies.set(path, text); return { path }; };
+  app.vault.process = async (file, change) => bodies.set(file.path, change(bodies.get(file.path)));
+  await publish(await review(), ["Docs/One.md"]);
+  const entry = profile.pages["file:Docs/One.md"];
+  const page = remote.records.get(entry.id);
+  const baseVersion = entry.version;
+  page.version.number++;
+  page.body.storage.value = "<p>Confluence editor change</p>";
+  const conflict = { id: entry.id, path: "Docs/One.md", original: bodies.get("Docs/One.md"),
+    remote: "Confluence editor change\n", version: page.version.number, baseVersion, title: page.title,
+    parent: "100", bodyHash: await lib.digest(page.body.storage.value), inventory: [], target: lib.publicationTarget(config) };
+  return { ...fixture, conflict, entry, page };
+}
+
+test("conflict resolution backs up the local note, advances only the accepted baseline and needs separate publication", async () => {
+  const { app, remote, profile, bodies, conflict, entry, page, review, publish } = await conflictFixture();
+  const updates = remote.stats.updates;
+  const result = await lib.resolveConflict(app, remote, profile, async () => {}, conflict, "Merged local and remote\n");
+  assert.equal(bodies.get(result.backup), conflict.original);
+  assert.equal(bodies.get(conflict.path), "Merged local and remote\n");
+  assert.equal(entry.version, page.version.number);
+  assert.equal(remote.stats.updates, updates);
+  const plan = await review();
+  assert.equal(plan.rows.find(row => row.id === entry.id).status, "Changed");
+  assert.equal(await publish(plan, [conflict.path]), 1);
+});
+
+test("conflict resolution rejects remote races and preserves a blocking baseline when saving metadata fails", async () => {
+  const fixture = await conflictFixture();
+  const { app, remote, profile, bodies, conflict, entry, page } = fixture;
+  const originalCreate = app.vault.create;
+  app.vault.create = async (...args) => { const result = await originalCreate(...args); page.version.number++; return result; };
+  await assert.rejects(lib.resolveConflict(app, remote, profile, async () => {}, conflict, "resolution"), /changed/);
+  assert.equal(bodies.get(conflict.path), conflict.original);
+  page.version.number--;
+  app.vault.create = originalCreate;
+  const prior = structuredClone(entry);
+  await assert.rejects(lib.resolveConflict(app, remote, profile, async () => { throw new Error("disk unavailable"); }, conflict, "resolution"), /disk unavailable/);
+  assert.deepEqual(entry, prior);
+  assert.equal(bodies.get(conflict.path), "resolution");
+  assert.ok(Array.from(bodies).some(([path, text]) => path.includes("/Backups/") && text === conflict.original));
 });

@@ -2,6 +2,21 @@
 
 // English messages are stable translation keys. Interpolate values only after lookup.
 const KOREAN = {
+  "Resolve text conflict": "본문 충돌 해결",
+  "Resolve page moves or title changes before resolving text.": "본문 충돌을 해결하기 전에 페이지 위치와 제목 변경을 확인하세요.",
+  "The Confluence page changed. Review the conflict again.": "Confluence 페이지가 변경되었습니다. 충돌 내용을 다시 검토하세요.",
+  "Review converted text. Attachments stay in Confluence. Publishing the resolution is a separate action.": "변환된 본문을 검토합니다. 첨부파일은 Confluence에 유지되며 해결한 내용의 발행은 별도로 실행합니다.",
+  "Previous baseline": "이전 기준 본문",
+  "Current local note": "현재 로컬 본문",
+  "Current Confluence page": "현재 Confluence 본문",
+  "Resolution text": "반영할 본문",
+  "Use local text": "로컬 본문 사용",
+  "Use Confluence text": "Confluence 본문 사용",
+  "Save resolution locally": "해결한 본문을 로컬에 저장",
+  "Back up {path}, save the reviewed text, and accept Confluence v{version} as the new baseline?": "{path}를 백업하고 검토한 본문을 저장하며 Confluence v{version}을 새 비교 기준으로 수용할까요?",
+  "Resolution saved. Review publication to upload your chosen text.": "충돌 해결 내용을 저장했습니다. 발행 검토에서 선택한 본문을 업로드할 수 있습니다.",
+  "Conflict resolution": "충돌 해결",
+  "Loading conflict versions…": "충돌 비교를 위한 버전을 불러오는 중…",
   "Review publication": "발행할 문서 검토",
   "Changed": "수정",
   "Unchanged": "변경 없음",
@@ -1771,6 +1786,155 @@ class PublicationModal extends Modal {
   }
 }
 
+async function prepareConflict(app, client, profile, page) {
+  const { path, entry } = mappedSource(profile, numericId(page.id), client.config.source);
+  if (entry.pending || entry.creating || !entry.bodyHash) {
+    throw new Error("The link has an unfinished publish. Resolve it before reviewing edits.");
+  }
+  if (page.title !== entry.title || String(page.parentId) !== entry.parent) {
+    throw new Error("Resolve page moves or title changes before resolving text.");
+  }
+  const file = app.vault.getFileByPath(path);
+  if (!file) throw new SyncError("The linked local Markdown file is unavailable: {path}", { path });
+  const original = await app.vault.read(file);
+  const latest = await checkedBody(client, page);
+  const prior = await checkedBody(client, page, entry.version);
+  const url = client.pageUrl(page.id);
+  return { id: String(page.id), path, original, local: original, base: fromStorage(prior, url),
+    remote: fromStorage(latest, url), version: page.version.number, baseVersion: entry.version,
+    title: page.title, parent: String(page.parentId), bodyHash: await digest(latest),
+    inventory: attachmentInventory(await client.attachments(page.id)),
+    target: publicationTarget(client.config) };
+}
+
+async function resolveConflict(app, client, profile, save, review, text) {
+  if (review.target !== publicationTarget(client.config) || typeof text !== "string") {
+    throw new Error("The Confluence page or destination changed. Review the latest version again.");
+  }
+  const { path, entry } = mappedSource(profile, review.id, client.config.source);
+  if (path !== review.path || entry.version !== review.baseVersion || entry.pending || entry.creating) {
+    throw new Error("The Confluence page or its link changed. Review the latest version again.");
+  }
+  const file = app.vault.getFileByPath(path);
+  if (!file || await app.vault.read(file) !== review.original || !editorMatches(app, path, review.original)) {
+    throw new Error("The local note changed after review. Review it again.");
+  }
+  const checkRemote = async () => {
+    const page = await client.page(review.id, undefined, true);
+    if (String(page.id) !== review.id || page.status !== "current" || String(page.spaceId) !== client.spaceId || page.title !== review.title ||
+        String(page.parentId) !== review.parent || page.version.number !== review.version ||
+        await digest(page.body?.storage?.value ?? "") !== review.bodyHash ||
+        JSON.stringify(attachmentInventory(await client.attachments(review.id))) !== JSON.stringify(review.inventory)) {
+      throw new Error("The Confluence page changed. Review the conflict again.");
+    }
+  };
+  await checkRemote();
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-") + " " + crypto.randomUUID().slice(0, 8);
+  const backup = client.config.inbox + "/Backups/" + stamp + "/" + path.slice(client.config.source.length + 1);
+  await makeVaultFolders(app.vault, parentPath(backup), client.config.inbox);
+  await app.vault.create(backup, review.original);
+  await checkRemote();
+  await app.vault.process(file, current => {
+    if (current !== review.original || file.path !== path || !editorMatches(app, path, current)) {
+      throw new Error("The local note changed while applying the selection. No local change was applied.");
+    }
+    return text;
+  });
+  const priorEntry = structuredClone(entry);
+  entry.version = review.version;
+  entry.bodyHash = review.bodyHash;
+  entry.sourceHash = await digest(review.remote);
+  entry.remoteAttachments = review.inventory;
+  delete entry.migratedInputHash;
+  delete entry.inputHash;
+  try {
+    if (text === review.remote) {
+      const tree = await preparedNotes(app, client.config);
+      const note = tree.notes.find(item => item.path === path);
+      if (!note || note.sourceHash !== await digest(text) || file.path !== path || !editorMatches(app, path, text)) {
+        throw new Error("The local note changed after review. Review it again.");
+      }
+      entry.migratedInputHash = note.inputHash;
+      entry.sourceHash = note.sourceHash;
+    }
+    await save();
+  } catch (error) {
+    for (const key of Object.keys(entry)) delete entry[key];
+    Object.assign(entry, priorEntry);
+    throw error;
+  }
+  return { backup, path, afterHash: await digest(text) };
+}
+
+class ConflictModal extends Modal {
+  constructor(plugin, review) {
+    super(plugin.app);
+    this.plugin = plugin;
+    this.review = review;
+    this.text = review.original;
+    this.t = (message, values) => plugin.t(message, values);
+  }
+
+  onOpen() {
+    this.opened = true;
+    this.contentEl.addClass("cfs-conflict");
+    this.render();
+  }
+
+  onClose() {
+    this.opened = false;
+    this.contentEl.empty();
+  }
+
+  render() {
+    const { contentEl, t, review } = this;
+    contentEl.empty();
+    contentEl.createEl("h2", { text: t("Resolve text conflict") });
+    contentEl.createEl("p", { text: review.path + " · Confluence v" + review.baseVersion + " → v" + review.version });
+    contentEl.createEl("p", { text: t("Review converted text. Attachments stay in Confluence. Publishing the resolution is a separate action.") });
+    const columns = contentEl.createDiv({ cls: "cfs-conflict-columns" });
+    for (const [label, text] of [["Previous baseline", review.base], ["Current local note", review.local], ["Current Confluence page", review.remote]]) {
+      const column = columns.createDiv();
+      column.createEl("h3", { text: t(label) });
+      column.createEl("pre", { text, attr: { tabindex: "0", "aria-label": t(label) } });
+    }
+    new Setting(contentEl).setName(t("Resolution text"))
+      .addButton(button => button.setButtonText(t("Use local text")).setDisabled(this.busy)
+        .onClick(() => { this.text = review.local; this.render(); }))
+      .addButton(button => button.setButtonText(t("Use Confluence text")).setDisabled(this.busy)
+        .onClick(() => { this.text = review.remote; this.render(); }));
+    const editor = contentEl.createEl("textarea", { cls: "cfs-resolution", attr: { "aria-label": t("Resolution text") } });
+    editor.value = this.text;
+    editor.disabled = Boolean(this.busy);
+    editor.addEventListener("input", () => { this.text = editor.value; });
+    if (this.status) contentEl.createEl("p", { text: this.status, attr: { role: "status" } });
+    new Setting(contentEl).addButton(button => button.setButtonText(t("Save resolution locally")).setCta()
+      .setDisabled(this.busy).onClick(() => this.apply()));
+  }
+
+  async apply() {
+    if (this.busy) return;
+    this.busy = true;
+    this.render();
+    try {
+      if (!await this.plugin.confirm(this.t("Save resolution locally"),
+        this.t("Back up {path}, save the reviewed text, and accept Confluence v{version} as the new baseline?",
+          { path: this.review.path, version: this.review.version }), this.t("Apply changes")) || !this.opened) return;
+      const result = await this.plugin.withConnection(({ client, profile, save }) =>
+        resolveConflict(this.app, client, profile, save, this.review, this.text));
+      this.status = this.t("Resolution saved. Review publication to upload your chosen text.");
+      this.close();
+      new Notice(this.status);
+      return result;
+    } catch (error) {
+      this.status = localizedError(error, this.plugin.language);
+    } finally {
+      this.busy = false;
+      if (this.opened) this.render();
+    }
+  }
+}
+
 class SyncDashboard extends Modal {
   constructor(plugin) {
     super(plugin.app);
@@ -1835,6 +1999,8 @@ class SyncDashboard extends Modal {
       .addButton(button("Load versions", () => this.loadVersions(), !this.pageId))
       .addButton(button("Review local application", () => this.loadReview(), !this.pageId))
       .addButton(button("Download latest copy", () => this.saveSnapshot(this.pageId), !this.pageId));
+    new Setting(contentEl).setName(t("Conflict resolution"))
+      .addButton(button("Resolve text conflict", () => this.resolveConflict(), !this.pageId));
     if (this.versions.length > 1) {
       const version = (field, name) => dropdown => {
         dropdown.setDisabled(this.busy);
@@ -1989,6 +2155,15 @@ class SyncDashboard extends Modal {
       const available = this.review.hunks.filter(hunk => hunk.at !== null).length;
       this.status = total ? this.t("{available} of {total} changes match the local note.", { available, total }) :
         this.t("No incoming body changes.");
+    });
+  }
+
+  resolveConflict() {
+    return this.selected("Loading conflict versions…", async (client, page, profile) => {
+      const review = await prepareConflict(this.app, client, profile, page);
+      if (!this.opened) return;
+      this.close();
+      new ConflictModal(this.plugin, review).open();
     });
   }
 

@@ -62,6 +62,8 @@ class SyncDashboard extends Modal {
       .addButton(button("Load versions", () => this.loadVersions(), !this.pageId))
       .addButton(button("Review local application", () => this.loadReview(), !this.pageId))
       .addButton(button("Download latest copy", () => this.saveSnapshot(this.pageId), !this.pageId));
+    new Setting(contentEl).setName(t("Conflict resolution"))
+      .addButton(button("Resolve text conflict", () => this.resolveConflict(), !this.pageId));
     if (this.versions.length > 1) {
       const version = (field, name) => dropdown => {
         dropdown.setDisabled(this.busy);
@@ -216,6 +218,15 @@ class SyncDashboard extends Modal {
       const available = this.review.hunks.filter(hunk => hunk.at !== null).length;
       this.status = total ? this.t("{available} of {total} changes match the local note.", { available, total }) :
         this.t("No incoming body changes.");
+    });
+  }
+
+  resolveConflict() {
+    return this.selected("Loading conflict versions…", async (client, page, profile) => {
+      const review = await prepareConflict(this.app, client, profile, page);
+      if (!this.opened) return;
+      this.close();
+      new ConflictModal(this.plugin, review).open();
     });
   }
 
