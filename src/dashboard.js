@@ -2,9 +2,10 @@ class SyncDashboard extends Modal {
   constructor(plugin) {
     super(plugin.app);
     this.plugin = plugin;
+    this.t = (message, values) => plugin.t(message, values);
     this.pages = [];
     this.versions = [];
-    this.status = "Load pages to view their Confluence versions.";
+    this.status = this.t("Load pages to view their Confluence versions.");
   }
 
   onOpen() {
@@ -19,28 +20,28 @@ class SyncDashboard extends Modal {
   }
 
   render() {
-    const { contentEl } = this;
+    const { contentEl, t } = this;
     contentEl.empty();
     contentEl.createEl("h2", { text: "Confluence Folder Sync" });
     contentEl.createEl("p", { text: this.status, attr: { role: "status", "aria-live": "polite" } });
     const button = (label, callback, disabled = false) => component =>
-      component.setButtonText(label).setDisabled(this.busy || disabled).onClick(callback);
+      component.setButtonText(t(label)).setDisabled(this.busy || disabled).onClick(callback);
     const command = action => () => {
       this.close();
       void this.plugin.run(action);
     };
-    new Setting(contentEl).setName("Check and sync")
+    new Setting(contentEl).setName(t("Check and sync"))
       .addButton(button("Preview changes", command("preview")))
       .addButton(button("Import new pages", command("import")))
       .addButton(button("Publish folder", command("publish"), !this.plugin.data.settings.allowPublish));
-    new Setting(contentEl).setName("Download the full folder")
-      .setDesc("Save every current page as a new snapshot under the import folder.")
+    new Setting(contentEl).setName(t("Download the full folder"))
+      .setDesc(t("Save every current page as a new snapshot under the import folder."))
       .addButton(button("Download snapshot", () => this.saveSnapshot()));
-    new Setting(contentEl).setName("Page versions")
+    new Setting(contentEl).setName(t("Page versions"))
       .addButton(button("Load pages", () => this.loadPages()));
 
     if (!this.pages.length) return;
-    const selectPage = new Setting(contentEl).setName("Confluence page");
+    const selectPage = new Setting(contentEl).setName(t("Confluence page"));
     selectPage.addDropdown(dropdown => {
       this.pageDropdown = dropdown;
       dropdown.setDisabled(this.busy);
@@ -54,10 +55,10 @@ class SyncDashboard extends Modal {
         this.render();
       });
     });
-    new Setting(contentEl).setName("Filter pages")
-      .addText(input => input.setValue(this.filter ?? "").setPlaceholder("Title or folder")
+    new Setting(contentEl).setName(t("Filter pages"))
+      .addText(input => input.setValue(this.filter ?? "").setPlaceholder(t("Title or folder"))
         .setDisabled(this.busy).onChange(value => this.filterPages(value)));
-    new Setting(contentEl).setName("Selected page")
+    new Setting(contentEl).setName(t("Selected page"))
       .addButton(button("Load versions", () => this.loadVersions(), !this.pageId))
       .addButton(button("Review local application", () => this.loadReview(), !this.pageId))
       .addButton(button("Download latest copy", () => this.saveSnapshot(this.pageId), !this.pageId));
@@ -71,23 +72,23 @@ class SyncDashboard extends Modal {
         }
         dropdown.setValue(String(this[field])).onChange(value => { this[field] = Number(value); });
       };
-      new Setting(contentEl).setName("Compare versions")
-        .addDropdown(version("before", "Base version"))
-        .addDropdown(version("after", "Comparison version"))
+      new Setting(contentEl).setName(t("Compare versions"))
+        .addDropdown(version("before", t("Base version")))
+        .addDropdown(version("after", t("Comparison version")))
         .addButton(button("Compare", () => this.compareVersions()));
     }
     if (this.difference) {
       contentEl.createEl("h3", { text: this.difference.title });
-      this.renderDiff(contentEl, this.difference.text.split("\n"), "Version differences");
+      this.renderDiff(contentEl, this.difference.text.split("\n"), t("Version differences"));
     }
     if (this.review?.hunks.length) {
       const { path, baseVersion, version, hunks } = this.review;
-      contentEl.createEl("h3", { text: "Apply selected changes to " + path });
+      contentEl.createEl("h3", { text: t("Apply selected changes to {path}", { path }) });
       contentEl.createEl("p", { text: "Confluence v" + baseVersion + " → v" + version });
       for (const [index, hunk] of hunks.entries()) {
-        const label = "Change " + (index + 1);
+        const label = t("Change {number}", { number: index + 1 });
         new Setting(contentEl).setName(label).setDesc(hunk.at === null ?
-          "The local context is missing or ambiguous." : "Local line " + (hunk.at + 1))
+          t("The local context is missing or ambiguous.") : t("Local line {number}", { number: hunk.at + 1 }))
           .addToggle(toggle => toggle.setDisabled(this.busy || hunk.at === null)
             .setValue(this.selection.has(index)).onChange(enabled => {
               if (enabled) this.selection.add(index);
@@ -104,7 +105,7 @@ class SyncDashboard extends Modal {
       });
     }
     if (this.backup) {
-      new Setting(contentEl).setName("Backup saved")
+      new Setting(contentEl).setName(t("Backup saved"))
         .addButton(button("Open backup", async () => {
           const file = this.app.vault.getFileByPath(this.backup);
           if (file) await this.app.workspace.getLeaf("tab").openFile(file);
@@ -126,7 +127,7 @@ class SyncDashboard extends Modal {
     const term = normalized(text.trim()).toLowerCase();
     const dropdown = this.pageDropdown;
     dropdown.selectEl.replaceChildren();
-    dropdown.addOption("", "Choose a page");
+    dropdown.addOption("", this.t("Choose a page"));
     for (const page of this.pages) {
       if (normalized(page.label).toLowerCase().includes(term) || page.id === this.pageId) {
         dropdown.addOption(page.id, page.label);
@@ -138,12 +139,12 @@ class SyncDashboard extends Modal {
   async perform(message, task) {
     if (this.busy) return;
     this.busy = true;
-    this.status = message;
+    this.status = this.t(message);
     this.render();
     try {
       await this.plugin.withConnection(task);
     } catch (error) {
-      this.status = error instanceof Error ? error.message : "The Confluence action failed.";
+      this.status = localizedError(error, this.plugin.language);
     } finally {
       this.busy = false;
       if (this.opened) this.render();
@@ -162,7 +163,7 @@ class SyncDashboard extends Modal {
         this.difference = null;
         this.review = null;
       }
-      this.status = folder.title + " · " + this.pages.length + " pages";
+      this.status = this.t("{folder} · {count} pages", { folder: folder.title, count: this.pages.length });
     });
   }
 
@@ -187,7 +188,7 @@ class SyncDashboard extends Modal {
       this.after = this.versions[0].number;
       this.before = this.versions[1]?.number;
       this.difference = null;
-      this.status = page.title + " · " + this.versions.length + " available versions";
+      this.status = this.t("{title} · {count} available versions", { title: page.title, count: this.versions.length });
     });
   }
 
@@ -200,8 +201,8 @@ class SyncDashboard extends Modal {
       const [oldBody, newBody] = await Promise.all([checkedBody(client, page, before), checkedBody(client, page, after)]);
       const diff = diffLines(fromStorage(oldBody, url), fromStorage(newBody, url));
       this.difference = { title: page.title + " · v" + before + " → v" + after,
-        text: diff || "No converted Markdown body difference." };
-      this.status = "Version comparison complete.";
+        text: diff || this.t("No converted Markdown body difference.") };
+      this.status = this.t("Version comparison complete.");
     });
   }
 
@@ -213,7 +214,8 @@ class SyncDashboard extends Modal {
       this.selection = new Set();
       const total = this.review.hunks.length;
       const available = this.review.hunks.filter(hunk => hunk.at !== null).length;
-      this.status = total ? available + " of " + total + " changes match the local note." : "No incoming body changes.";
+      this.status = total ? this.t("{available} of {total} changes match the local note.", { available, total }) :
+        this.t("No incoming body changes.");
     });
   }
 
@@ -222,18 +224,18 @@ class SyncDashboard extends Modal {
     const selection = Array.from(this.selection);
     return this.selected("Checking the selected changes…", async (client, page, profile) => {
       if (!this.opened) return;
-      const approved = await this.plugin.confirm("Apply selected changes",
-        "Apply " + selection.length + " changes to " + review.path + "? A backup will be saved first.",
-        "Apply changes");
+      const approved = await this.plugin.confirm(this.t("Apply selected changes"),
+        this.t("Apply {count} changes to {path}? A backup will be saved first.", { count: selection.length, path: review.path }),
+        this.t("Apply changes"));
       if (!approved || !this.opened) {
-        this.status = "Application cancelled.";
+        this.status = this.t("Application cancelled.");
         return;
       }
       const result = await applyLocalReview(this.app, client, profile, page, review, selection);
       this.review = null;
       this.selection = new Set();
       this.backup = result.backup;
-      this.status = result.count + " changes applied to the local note.";
+      this.status = this.t("{count} changes applied to the local note.", { count: result.count });
     });
   }
 
@@ -244,13 +246,13 @@ class SyncDashboard extends Modal {
       if (!id) {
         if (!remote.pages.size) throw new Error("The selected folder contains no pages.");
         const approved = await this.plugin.confirm(
-          "Download Confluence snapshot",
-          "Save the current versions of " + remote.pages.size + " pages from " + folder.title +
-          " in a new snapshot under " + client.config.inbox + "?",
-          "Download snapshot",
+          this.t("Download Confluence snapshot"),
+          this.t("Save the current versions of {count} pages from {folder} in a new snapshot under {inbox}?",
+            { count: remote.pages.size, folder: folder.title, inbox: client.config.inbox }),
+          this.t("Download snapshot"),
         );
         if (!approved || !this.opened) {
-          this.status = "Snapshot cancelled.";
+          this.status = this.t("Snapshot cancelled.");
           return;
         }
       }

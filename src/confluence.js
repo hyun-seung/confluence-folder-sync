@@ -1,4 +1,4 @@
-const { Plugin, PluginSettingTab, Setting, SecretComponent, Notice, Modal, requestUrl } = require("obsidian");
+const { Plugin, PluginSettingTab, Setting, SecretComponent, Notice, Modal, requestUrl, getLanguage } = require("obsidian");
 
 const DESCENDANTS_DEPTH = 10;
 const API = "/wiki/api/v2";
@@ -9,6 +9,7 @@ class ApiError extends Error {
   constructor(method, status) {
     super(`Confluence ${method} returned HTTP ${status}.`);
     this.status = status;
+    this.method = method;
   }
 }
 
@@ -287,7 +288,7 @@ class ConfluenceCloud {
 
   async downloadAttachment(pageId, file, get = binaryGet) {
     const entry = attachmentEntry(file);
-    if (entry.size > MAX_ATTACHMENT_BYTES) throw new Error("Attachment exceeds the 25 MiB limit: " + entry.title);
+    if (entry.size > MAX_ATTACHMENT_BYTES) throw new SyncError("Attachment exceeds the 25 MiB limit: {title}", { title: entry.title });
     const path = REST + "/content/" + numericId(pageId) + "/child/attachment/" +
       encodeURIComponent(file.id) + "/download?version=" + entry.version;
     const response = await get(this.gateway + path, { Authorization: this.auth });

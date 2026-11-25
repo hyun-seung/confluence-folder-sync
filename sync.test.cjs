@@ -5,13 +5,35 @@ const assert = require("node:assert/strict");
 const fromBundle = new Function("require", "module",
   readFileSync("main.js", "utf8") + "\nreturn { validatedConfig, vaultPath, markdownLines, toStorage, " +
   "ConfluenceCloud, Publisher, preparedNotes, pageTrails, digest, lineChange, fromStorage, " +
-  "attachmentInventory, attachmentDiff, reviewHunks, matchHunk, mergeSelected, applyLocalReview };");
+  "attachmentInventory, attachmentDiff, reviewHunks, matchHunk, mergeSelected, applyLocalReview, " +
+  "KOREAN, syncLanguage, translate, localizedError, SyncError, ApiError };");
 const fakeModule = { exports: {} };
 const lib = fromBundle(() => ({ Plugin: class {}, PluginSettingTab: class {}, Modal: class {} }), fakeModule);
 const fixtureConfig = {
   folderUrl: "https://example.atlassian.net/wiki/spaces/DOC/folder/100/Test", source: "Docs",
   inbox: "Incoming", email: "test@example.com", secretId: "fixture",
 };
+
+test("language follows Obsidian with explicit overrides and preserves interpolated user text", () => {
+  assert.equal(lib.syncLanguage("auto", "ko"), "ko");
+  assert.equal(lib.syncLanguage(undefined, "ko-KR"), "ko");
+  assert.equal(lib.syncLanguage("auto", "de"), "en");
+  assert.equal(lib.syncLanguage("en", "ko"), "en");
+  assert.equal(lib.syncLanguage("ko", "en"), "ko");
+  assert.equal(lib.translate("ko", "Download snapshot"), "전체 사본 내려받기");
+  assert.equal(lib.translate("en", "Download snapshot"), "Download snapshot");
+  const path = "Docs/{count}/<Example>.md";
+  assert.equal(lib.translate("ko", "Apply selected changes to {path}", { path }), path + "에 선택한 변경 반영");
+  assert.equal(lib.translate("ko", "Untranslated diagnostic"), "Untranslated diagnostic");
+  assert.equal(lib.localizedError(new Error("Choose two different versions."), "ko"), "서로 다른 버전 두 개를 선택하세요.");
+  const error = new lib.SyncError("Duplicate page title in the source folder: {title}", { title: "Test" });
+  assert.match(error.message, /Duplicate page title/);
+  assert.match(lib.localizedError(error, "ko"), /중복된 페이지 제목.*Test/);
+  assert.match(lib.localizedError(new lib.ApiError("GET", 403), "ko"), /GET.*403/);
+  for (const [key, value] of Object.entries(lib.KOREAN)) {
+    assert.deepEqual((key.match(/\{[a-z]+\}/gi) ?? []).sort(), (value.match(/\{[a-z]+\}/gi) ?? []).sort(), key);
+  }
+});
 
 test("config accepts a Confluence Cloud folder and rejects external hosts and overlapping paths", () => {
   assert.equal(lib.validatedConfig(fixtureConfig).folderId, "100");

@@ -1,14 +1,15 @@
 const DEFAULT_SETTINGS = {
   folderUrl: "", source: "Confluence source", inbox: "Confluence inbox",
-  email: "", secretId: "", allowPublish: false,
+  email: "", secretId: "", allowPublish: false, language: "auto",
 };
 
 class Confirmation extends Modal {
-  constructor(app, title, summary, buttonLabel, accept) {
+  constructor(app, title, summary, buttonLabel, cancelLabel, accept) {
     super(app);
     this.title = title;
     this.summary = summary;
     this.buttonLabel = buttonLabel;
+    this.cancelLabel = cancelLabel;
     this.accept = accept;
     this.confirmed = false;
   }
@@ -17,7 +18,7 @@ class Confirmation extends Modal {
     this.contentEl.createEl("h2", { text: this.title });
     this.contentEl.createEl("p", { text: this.summary });
     new Setting(this.contentEl)
-      .addButton(button => button.setButtonText("Cancel").onClick(() => this.close()))
+      .addButton(button => button.setButtonText(this.cancelLabel).onClick(() => this.close()))
       .addButton(button => button.setButtonText(this.buttonLabel).setCta().onClick(() => {
         this.confirmed = true;
         this.close();
@@ -40,21 +41,30 @@ class SyncSettings extends PluginSettingTab {
     const { containerEl, plugin } = this;
     containerEl.empty();
     const settings = plugin.data.settings;
+    const t = (message, values) => plugin.t(message, values);
+    new Setting(containerEl).setName(t("Language"))
+      .setDesc(t("Follow Obsidian or choose the language for this plugin."))
+      .addDropdown(dropdown => dropdown.addOption("auto", t("Follow Obsidian"))
+        .addOption("en", "English").addOption("ko", "한국어").setValue(settings.language)
+        .onChange(async value => {
+          await plugin.configure("language", value);
+          this.display();
+        }));
     const text = (name, description, property, placeholder) => {
-      new Setting(containerEl).setName(name).setDesc(description).addText(field => {
+      new Setting(containerEl).setName(t(name)).setDesc(t(description)).addText(field => {
         field.setValue(settings[property]).setPlaceholder(placeholder).onChange(value => plugin.configure(property, value));
       });
     };
     text("Confluence folder URL", "Copy the URL of a folder from the Confluence sidebar.", "folderUrl", "https://example.atlassian.net/wiki/spaces/DOC/folder/1234");
     text("Atlassian email", "Use the account that issued the Confluence Cloud token.", "email", "name@example.com");
-    new Setting(containerEl).setName("Confluence API token").setDesc("Select a scoped Atlassian API token stored in Obsidian.")
+    new Setting(containerEl).setName(t("Confluence API token")).setDesc(t("Select a scoped Atlassian API token stored in Obsidian."))
       .addComponent(el => new SecretComponent(plugin.app, el).setValue(settings.secretId)
         .onChange(value => plugin.configure("secretId", value ?? "")));
     text("Source vault folder", "Publish only notes and referenced files from this folder.", "source", "Project");
     text("Import vault folder", "Save previews and imported copies in a separate folder.", "inbox", "Confluence inbox");
-    new Setting(containerEl).setName("Enable publish").setDesc("Allow explicit, confirmed uploads from this vault.")
+    new Setting(containerEl).setName(t("Enable publish")).setDesc(t("Allow explicit, confirmed uploads from this vault."))
       .addToggle(toggle => toggle.setValue(settings.allowPublish).onChange(value => plugin.configure("allowPublish", value)));
-    new Setting(containerEl).setName("Connection").addButton(button => button.setButtonText("Test connection")
+    new Setting(containerEl).setName(t("Connection")).addButton(button => button.setButtonText(t("Test connection"))
       .onClick(() => plugin.run("connect")));
   }
 }
@@ -66,11 +76,31 @@ class ConfluenceFolderSync extends Plugin {
     this.saving = Promise.resolve();
     this.addSettingTab(new SyncSettings(this));
     const openDashboard = () => new SyncDashboard(this).open();
-    this.addRibbonIcon("arrow-right-left", "Open Confluence sync dashboard", openDashboard);
-    this.addCommand({ id: "dashboard", name: "Open sync dashboard", callback: openDashboard });
-    this.addCommand({ id: "publish", name: "Publish vault folder to Confluence", callback: () => this.run("publish") });
-    this.addCommand({ id: "preview", name: "Preview Confluence changes", callback: () => this.run("preview") });
-    this.addCommand({ id: "import", name: "Import new Confluence pages", callback: () => this.run("import") });
+    this.ribbon = this.addRibbonIcon("arrow-right-left", this.t("Open Confluence sync dashboard"), openDashboard);
+    this.commandDefinitions = [
+      { id: "dashboard", name: "Open sync dashboard", callback: openDashboard },
+      { id: "publish", name: "Publish vault folder to Confluence", callback: () => this.run("publish") },
+      { id: "preview", name: "Preview Confluence changes", callback: () => this.run("preview") },
+      { id: "import", name: "Import new Confluence pages", callback: () => this.run("import") },
+    ];
+    this.registerCommands();
+  }
+
+  get language() {
+    return syncLanguage(this.data.settings.language, typeof getLanguage === "function" ? getLanguage() : "en");
+  }
+
+  t(message, values) {
+    return translate(this.language, message, values);
+  }
+
+  registerCommands() {
+    for (const command of this.commandDefinitions) {
+      if (this.commandsRegistered) this.removeCommand(command.id);
+      this.addCommand({ ...command, name: this.t(command.name) });
+    }
+    this.commandsRegistered = true;
+    this.ribbon.setAttribute("aria-label", this.t("Open Confluence sync dashboard"));
   }
 
   persist() {
@@ -84,13 +114,14 @@ class ConfluenceFolderSync extends Plugin {
     this.data.settings[key] = value;
     try {
       await this.persist();
+      if (key === "language") this.registerCommands();
     } catch {
-      new Notice("Confluence Folder Sync could not save the settings.");
+      new Notice(this.t("Confluence Folder Sync could not save the settings."));
     }
   }
 
   confirm(title, summary, button) {
-    return new Promise(resolve => new Confirmation(this.app, title, summary, button, resolve).open());
+    return new Promise(resolve => new Confirmation(this.app, title, summary, button, this.t("Cancel"), resolve).open());
   }
 
   async withConnection(task) {
@@ -98,7 +129,7 @@ class ConfluenceFolderSync extends Plugin {
     this.running = true;
     try {
       await this.saving;
-      const config = validatedConfig(this.data.settings);
+      const config = validatedConfig({ ...this.data.settings, language: this.language });
       const token = this.app.secretStorage.getSecret(config.secretId);
       if (!token) throw new Error("Choose a valid token in the plugin settings.");
       const client = new ConfluenceCloud(config, token);
@@ -112,11 +143,11 @@ class ConfluenceFolderSync extends Plugin {
   }
 
   async run(action) {
-    const progress = new Notice("Connecting to Confluence…", 0);
+    const progress = new Notice(this.t("Connecting to Confluence…"), 0);
     try {
       await this.withConnection(async ({ client, folder, config, profile, save }) => {
         if (action === "connect") {
-          new Notice("Connected to Confluence folder " + folder.title + " (" + config.folderId + ").");
+          new Notice(this.t("Connected to Confluence folder {title} ({id}).", { title: folder.title, id: config.folderId }));
           return;
         }
         if (action === "publish" && !config.allowPublish) {
@@ -134,21 +165,22 @@ class ConfluenceFolderSync extends Plugin {
         const publisher = new Publisher(client, this.app, profile, save);
         await publisher.plan(tree, catalog);
         progress.hide();
-        const approved = await this.confirm("Publish to Confluence",
-          "Publish " + tree.notes.length + " notes from " + config.source + " to " +
-          new URL(config.origin).hostname + " / " + folder.title + " (folder " + config.folderId + ").",
-          "Publish");
+        const approved = await this.confirm(this.t("Publish to Confluence"),
+          this.t("Publish {count} notes from {source} to {host} / {folder} (folder {id}).",
+            { count: tree.notes.length, source: config.source, host: new URL(config.origin).hostname,
+              folder: folder.title, id: config.folderId }), this.t("Publish"));
         if (!approved) return;
-        const status = new Notice("Publishing to Confluence…", 0);
+        const status = new Notice(this.t("Publishing to Confluence…"), 0);
         try {
           const updated = await publisher.publish(tree, catalog);
-          new Notice("Confluence: " + updated + " updated, " + (tree.notes.length - updated) + " unchanged.");
+          new Notice(this.t("Confluence: {updated} updated, {unchanged} unchanged.",
+            { updated, unchanged: tree.notes.length - updated }));
         } finally {
           status.hide();
         }
       });
     } catch (error) {
-      const message = error instanceof ApiError || error instanceof Error ? error.message : "The operation failed.";
+      const message = localizedError(error, this.language);
       new Notice("Confluence Folder Sync: " + message, 12000);
     } finally {
       progress.hide();

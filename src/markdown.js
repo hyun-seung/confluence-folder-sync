@@ -307,8 +307,8 @@ function diffLines(before, after) {
   return lines.join("\n");
 }
 
-function lineChange(before, after) {
+function lineChange(before, after, language = "en") {
   const diff = diffLines(before, after);
-  return diff ? codeFence(diff, "diff") : "No converted Markdown body difference.";
+  return diff ? codeFence(diff, "diff") : translate(language, "No converted Markdown body difference.");
 }
 

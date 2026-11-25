@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0
+
+- Follow the Obsidian interface language, with English and Korean overrides in settings.
+- Translate settings, dashboard controls, confirmations, notices, known plugin errors, and generated report text.
+- Add a full Korean usage guide and bilingual release notes.
+- Distribute the three standard Obsidian release assets plus an optional installation ZIP and SHA-256 checksums.
+- Verify 14 automated fixtures, both languages in the Chromium dashboard workflow, and native macOS language/command switching in Obsidian 1.14.5.
+
 ## 0.3.1
 
 - Preserve unchanged page bodies when a verified baseline is migrated from a different Markdown formatter.

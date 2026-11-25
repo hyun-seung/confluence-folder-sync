@@ -1,21 +1,27 @@
 # Confluence Folder Sync
 
+English · [한국어](README.ko.md)
+
 Publish a selected Obsidian vault folder to Confluence Cloud. Preview remote edits and save new Confluence pages as local Markdown copies. Processing runs in desktop Obsidian and connects directly to Atlassian. The plugin requires no external command, Python runtime, paid Obsidian add-on, or relay server.
 
 This is a pre-release. Source and development history are available on [GitHub](https://github.com/hyun-seung/confluence-folder-sync). Official Obsidian Community directory submission is pending. The repository owner has yet to select a public license.
 
 ## Install the release candidate
 
-1. Download `main.js`, `manifest.json`, and `styles.css` from the same revision in the [repository root](https://github.com/hyun-seung/confluence-folder-sync), or build them using the instructions below. Copy the three files to `.obsidian/plugins/confluence-folder-sync/` in a test vault. Enable **Confluence Folder Sync** in Obsidian's Community plugins settings.
+1. Open [Releases](https://github.com/hyun-seung/confluence-folder-sync/releases) and choose the newest preview. Download `confluence-folder-sync-0.4.0.zip`, then extract its `confluence-folder-sync` folder into your vault's `.obsidian/plugins/` folder. Alternatively, download the three individual assets `main.js`, `manifest.json`, and `styles.css` from the same release into `.obsidian/plugins/confluence-folder-sync/`. Enable **Confluence Folder Sync** in Obsidian's Community plugins settings. GitHub's automatically generated **Source code (zip)** is for development and has a different directory structure.
 2. In the plugin settings, enter your Confluence Cloud **folder URL** and the Atlassian email associated with a scoped API token. Select the token using Obsidian's secret picker. Use Obsidian Desktop 1.14 or later.
 3. Set separate vault-relative source and import folders, then use **Test connection**.
 4. Open the **Confluence sync dashboard** from the arrow icon in the left ribbon or from the command palette. To publish, enable **Enable publish** and verify the displayed destination when confirming.
 
 Use a new Confluence test folder on first setup. This plugin maintains its own ID map. Existing pages are reported as conflicts when titles match an unrelated page. The Mac tool's existing mappings need a separate migration before this plugin can manage those pages.
 
+## Language
+
+The interface follows the Obsidian application language by default. In this plugin's settings, choose **Language → Follow Obsidian / English / 한국어**. Settings, dashboard controls, confirmations, notifications, plugin error messages, and generated report text support both languages. The command palette and ribbon label update when you change this setting. Other Obsidian languages use English. Original note content, Confluence titles, technical diagnostics from the host, and stable import directory names are preserved. The same release and ZIP support both languages.
+
 ## Upgrade an existing installation
 
-Disable this plugin in Obsidian, replace the three release assets, and enable it again. Keep the installation's `data.json` and its Obsidian secret entry so existing page IDs and version baselines remain available.
+Disable this plugin in Obsidian, replace the three release assets, and enable it again. When upgrading with the ZIP, copy its files into the existing plugin folder instead of deleting the old folder. Keep the installation's `data.json` and its Obsidian secret entry so existing page IDs and version baselines remain available.
 
 Migrating from an external publisher requires verifying each page's ID, parent, title, and version and transferring the baseline locally. A migrated baseline can preserve unchanged page contents even when the publishers use different formatters. If a source note changes, subsequent publishing uses this plugin's documented conversion coverage. Start with publishing disabled, test the connection, preview changes, and review a snapshot before enabling uploads.
 
@@ -55,13 +61,13 @@ The token is retrieved from Obsidian SecretStorage. The plugin stores your setti
 
 - Publish supports headings, basic emphasis, lists, Markdown tables, fenced code, links within the configured source, and referenced in-scope attachments up to 25 MiB each. Mermaid is published as fenced source in a Confluence code macro. Rich Markdown extensions and all Confluence editor features have limited conversion.
 - Import saves new page bodies and attachments under the separate import folder. Attachments up to 25 MiB each are downloaded, with size verification. Earlier page-body comparisons and selective application cover the converted text, while attachment changes appear separately in the report.
-- The runtime uses Obsidian desktop APIs, web APIs, and the desktop HTTPS client for binary downloads. macOS local installation, account connection, page listing, version comparison, change preview, and synthetic page and attachment import have been verified in Obsidian 1.14.5. Windows and Linux installation checks remain pending.
+- The runtime uses Obsidian desktop APIs, web APIs, and the desktop HTTPS client for binary downloads. macOS local installation, account connection, page listing, version comparison, change preview, English/Korean language and command switching, and synthetic page and attachment import have been verified in Obsidian 1.14.5. Windows and Linux installation checks remain pending.
 
 ## Build and review
 
 Run `npm run build` to generate `main.js` deterministically. Run `npm test` to build and execute fixture tests. Node.js is only needed by maintainers for building and testing.
 
-For an official Community release, the owner must approve a public license, publish this standalone source and a matching GitHub release, and submit it through [Obsidian Community](https://community.obsidian.md/). Include `main.js`, `manifest.json`, and `styles.css` as release assets. A release must contain generated code from the exact tagged source. Confirm the public plugin ID is available before submitting. See the [official submission guide](https://docs.obsidian.md/Plugins/Releasing/Submit%20your%20plugin).
+For an official Community release, the owner must approve a public license, complete the pending platform checks, and submit it through [Obsidian Community](https://community.obsidian.md/). Include `main.js`, `manifest.json`, and `styles.css` as release assets. The release tag matches `manifest.json` exactly, without a `v` prefix. `versions.json` records the minimum supported Obsidian version. The optional installation ZIP contains the plugin folder, the three assets, and both language guides. `SHA256SUMS.txt` verifies the downloads. A release must contain generated code from the exact tagged source. Confirm the public plugin ID is available before submitting. See the [official submission guide](https://docs.obsidian.md/Plugins/Releasing/Submit%20your%20plugin).
 
 Use synthetic notes and test identifiers in public materials. Keep personal configuration, vault content, account tokens, synchronization state, and organizational paths in local storage.
 

@@ -99,7 +99,7 @@ async function prepareLocalReview(app, client, profile, page) {
     throw new Error("The link has an unfinished publish. Resolve it before reviewing edits.");
   }
   const file = app.vault.getFileByPath(path);
-  if (!file || file.extension !== "md") throw new Error("The linked local Markdown file is unavailable: " + path);
+  if (!file || file.extension !== "md") throw new SyncError("The linked local Markdown file is unavailable: {path}", { path });
   const original = await app.vault.read(file);
   const latest = await checkedBody(client, page);
   const prior = page.version.number === entry.version ? latest : await checkedBody(client, page, entry.version);

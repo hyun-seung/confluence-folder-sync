@@ -1,6 +1,208 @@
 "use strict";
 
-const { Plugin, PluginSettingTab, Setting, SecretComponent, Notice, Modal, requestUrl } = require("obsidian");
+// English messages are stable translation keys. Interpolate values only after lookup.
+const KOREAN = {
+  "Language": "언어",
+  "Follow Obsidian or choose the language for this plugin.": "Obsidian 언어를 따르거나 플러그인에서 사용할 언어를 선택합니다.",
+  "Follow Obsidian": "Obsidian 설정 따르기",
+  "Cancel": "취소",
+  "Confluence folder URL": "Confluence 폴더 URL",
+  "Copy the URL of a folder from the Confluence sidebar.": "Confluence 사이드바에서 대상 폴더의 URL을 복사해 입력합니다.",
+  "Atlassian email": "Atlassian 이메일",
+  "Use the account that issued the Confluence Cloud token.": "Confluence Cloud 토큰을 발급한 계정의 이메일을 입력합니다.",
+  "Confluence API token": "Confluence API 토큰",
+  "Select a scoped Atlassian API token stored in Obsidian.": "Obsidian에 저장한 범위 지정 Atlassian API 토큰을 선택합니다.",
+  "Source vault folder": "발행할 보관함 폴더",
+  "Publish only notes and referenced files from this folder.": "이 폴더 안의 노트와 참조된 첨부파일을 발행합니다.",
+  "Import vault folder": "가져오기 보관함 폴더",
+  "Save previews and imported copies in a separate folder.": "변경 보고서와 가져온 사본을 저장할 별도 폴더입니다.",
+  "Enable publish": "발행 허용",
+  "Allow explicit, confirmed uploads from this vault.": "사용자가 실행하고 확인한 경우 이 보관함의 문서를 업로드합니다.",
+  "Connection": "연결",
+  "Test connection": "연결 테스트",
+  "Open Confluence sync dashboard": "Confluence 동기화 대시보드 열기",
+  "Open sync dashboard": "동기화 대시보드 열기",
+  "Publish vault folder to Confluence": "보관함 폴더를 Confluence에 발행",
+  "Preview Confluence changes": "Confluence 변경 사항 미리 보기",
+  "Import new Confluence pages": "Confluence 새 페이지 가져오기",
+  "Confluence Folder Sync could not save the settings.": "Confluence Folder Sync 설정을 저장하지 못했습니다.",
+  "Connecting to Confluence…": "Confluence에 연결하는 중…",
+  "Connected to Confluence folder {title} ({id}).": "Confluence 폴더 {title} ({id})에 연결했습니다.",
+  "Publish to Confluence": "Confluence에 발행",
+  "Publish {count} notes from {source} to {host} / {folder} (folder {id}).": "{source}의 노트 {count}개를 {host} / {folder} (폴더 {id})에 발행합니다.",
+  "Publish": "발행",
+  "Publishing to Confluence…": "Confluence에 발행하는 중…",
+  "Confluence: {updated} updated, {unchanged} unchanged.": "Confluence 문서 {updated}개 반영, {unchanged}개 변경 없음.",
+  "Load pages to view their Confluence versions.": "페이지 목록을 불러와 Confluence 버전을 확인하세요.",
+  "Check and sync": "변경 확인 및 동기화",
+  "Preview changes": "변경 사항 미리 보기",
+  "Import new pages": "새 페이지 가져오기",
+  "Publish folder": "폴더 발행",
+  "Download the full folder": "전체 폴더 내려받기",
+  "Save every current page as a new snapshot under the import folder.": "모든 페이지의 현재 버전을 가져오기 폴더 안에 새 사본으로 저장합니다.",
+  "Download snapshot": "전체 사본 내려받기",
+  "Page versions": "페이지 버전",
+  "Load pages": "페이지 목록 불러오기",
+  "Confluence page": "Confluence 페이지",
+  "Filter pages": "페이지 검색",
+  "Title or folder": "제목 또는 폴더",
+  "Selected page": "선택한 페이지",
+  "Load versions": "버전 불러오기",
+  "Review local application": "로컬 반영 검토",
+  "Download latest copy": "최신 사본 내려받기",
+  "Compare versions": "버전 비교",
+  "Base version": "기준 버전",
+  "Comparison version": "비교 버전",
+  "Compare": "비교",
+  "Version differences": "버전 차이",
+  "Apply selected changes to {path}": "{path}에 선택한 변경 반영",
+  "Change {number}": "변경 {number}",
+  "The local context is missing or ambiguous.": "로컬에서 일치하는 위치를 찾을 수 없거나 여러 곳이 일치합니다.",
+  "Local line {number}": "로컬 {number}번째 줄",
+  "Apply selected changes": "선택한 변경 반영",
+  "Backup saved": "백업 저장됨",
+  "Open backup": "백업 열기",
+  "Choose a page": "페이지 선택",
+  "Loading Confluence pages…": "Confluence 페이지를 불러오는 중…",
+  "{folder} · {count} pages": "{folder} · 페이지 {count}개",
+  "Loading page versions…": "페이지 버전을 불러오는 중…",
+  "{title} · {count} available versions": "{title} · 확인 가능한 버전 {count}개",
+  "Comparing page versions…": "페이지 버전을 비교하는 중…",
+  "No converted Markdown body difference.": "Markdown으로 변환한 본문에 차이가 없습니다.",
+  "Version comparison complete.": "버전 비교를 완료했습니다.",
+  "Finding changes that match the local note…": "로컬 노트에 반영할 수 있는 변경을 확인하는 중…",
+  "{available} of {total} changes match the local note.": "변경 {total}개 중 {available}개를 로컬 노트에 반영할 수 있습니다.",
+  "No incoming body changes.": "가져올 본문 변경이 없습니다.",
+  "Checking the selected changes…": "선택한 변경을 확인하는 중…",
+  "Apply {count} changes to {path}? A backup will be saved first.": "{path}에 변경 {count}개를 반영할까요? 먼저 백업을 저장합니다.",
+  "Apply changes": "변경 반영",
+  "Application cancelled.": "로컬 반영을 취소했습니다.",
+  "{count} changes applied to the local note.": "로컬 노트에 변경 {count}개를 반영했습니다.",
+  "Preparing the current Confluence snapshot…": "Confluence의 현재 버전 사본을 준비하는 중…",
+  "Download Confluence snapshot": "Confluence 전체 사본 내려받기",
+  "Save the current versions of {count} pages from {folder} in a new snapshot under {inbox}?": "{folder}의 페이지 {count}개를 {inbox} 아래 새 사본 폴더에 저장할까요?",
+  "Snapshot cancelled.": "전체 사본 내려받기를 취소했습니다.",
+  "{count} current copies saved": "현재 버전 사본 {count}개 저장됨",
+  "Confluence snapshot": "Confluence 전체 사본",
+  "New": "신규",
+  "Confluence version {before} → {after}": "Confluence 버전 {before} → {after}",
+  "Local path: {path}": "로컬 경로 — {path}",
+  "Both the local note and the Confluence page changed.": "로컬 노트와 Confluence 페이지가 모두 변경되었습니다.",
+  "The Confluence parent changed.": "Confluence의 상위 항목이 변경되었습니다.",
+  "The Confluence title changed.": "Confluence 제목이 변경되었습니다.",
+  "Attachment added": "첨부파일 추가",
+  "Attachment changed": "첨부파일 변경",
+  "Attachment removed": "첨부파일 삭제",
+  "The previous version cannot be read.": "이전 버전을 읽을 수 없습니다.",
+  "Current local text compared with Confluence:": "현재 로컬 본문과 Confluence 비교",
+  "Outside the selected hierarchy or unavailable": "선택한 계층 밖으로 이동했거나 접근할 수 없음",
+  "{new} new · {changed} changed · {imported} imported · {missing} unavailable": "신규 {new}개 · 변경 {changed}개 · 가져옴 {imported}개 · 접근 불가 {missing}개",
+  "Confluence import report": "Confluence 가져오기 보고서",
+  "Confluence change preview": "Confluence 변경 사항 미리 보기",
+  "New pages and their attachments are saved under Imported pages.": "새 페이지와 첨부파일을 Imported pages 아래에 저장했습니다.",
+  "Review the differences and copy the changes you want to incorporate into the original note.": "차이를 검토해 필요한 내용을 원본 노트에 반영하세요. 대시보드의 로컬 반영 검토에서 변경을 선택할 수 있습니다.",
+  "Recorded current attachment versions for {count} previously tracked pages.": "기존 추적 페이지 {count}개의 현재 첨부파일 버전을 기록했습니다.",
+  "A Confluence command is already running in this vault.": "이 보관함에서 다른 Confluence 명령을 실행 중입니다.",
+  "Choose a valid token in the plugin settings.": "플러그인 설정에서 유효한 토큰을 선택하세요.",
+  "Enable publishing in the plugin settings first.": "먼저 플러그인 설정에서 발행을 허용하세요.",
+  "The selected folder contains no Markdown notes.": "선택한 폴더에 Markdown 노트가 없습니다.",
+  "The operation failed.": "작업에 실패했습니다.",
+  "The Confluence action failed.": "Confluence 작업에 실패했습니다.",
+  "The selected page is no longer in this Confluence folder.": "선택한 페이지가 더 이상 이 Confluence 폴더 안에 없습니다.",
+  "Choose two different versions.": "서로 다른 버전 두 개를 선택하세요.",
+  "The selected folder contains no pages.": "선택한 폴더에 페이지가 없습니다.",
+  "Confluence returned an invalid content ID.": "Confluence가 잘못된 콘텐츠 ID를 반환했습니다.",
+  "Use a visible, relative vault folder path.": "숨김 폴더가 아닌 보관함 기준 상대 폴더 경로를 입력하세요.",
+  "Enter a Confluence Cloud folder URL.": "Confluence Cloud 폴더 URL을 입력하세요.",
+  "Enter the HTTPS URL of a Confluence Cloud folder.": "Confluence Cloud 폴더의 HTTPS URL을 입력하세요.",
+  "Choose separate source and import folders that do not overlap.": "발행 폴더와 가져오기 폴더를 서로 겹치지 않게 지정하세요.",
+  "Set an Atlassian email and select a token in the plugin settings.": "플러그인 설정에서 Atlassian 이메일을 입력하고 토큰을 선택하세요.",
+  "Confluence returned invalid attachment metadata.": "Confluence가 잘못된 첨부파일 정보를 반환했습니다.",
+  "Confluence returned duplicate attachment IDs.": "Confluence가 중복된 첨부파일 ID를 반환했습니다.",
+  "Could not read the Confluence attachment over HTTPS.": "HTTPS로 Confluence 첨부파일을 읽지 못했습니다.",
+  "Attachment exceeded the size reported by Confluence.": "첨부파일이 Confluence에서 보고한 크기를 초과했습니다.",
+  "Attachment size did not match the Confluence metadata.": "첨부파일 크기가 Confluence 정보와 일치하지 않습니다.",
+  "Confluence attachment download timed out.": "Confluence 첨부파일 내려받기 시간이 초과되었습니다.",
+  "The Confluence site did not return a Cloud ID.": "Confluence 사이트가 Cloud ID를 반환하지 않았습니다.",
+  "The configured Confluence folder is unavailable.": "설정한 Confluence 폴더에 접근할 수 없습니다.",
+  "Refusing a request outside the Confluence API.": "Confluence API 범위 밖의 요청을 차단했습니다.",
+  "Confluence returned an invalid list.": "Confluence가 잘못된 목록을 반환했습니다.",
+  "Confluence returned an unexpected pagination host.": "Confluence 목록의 다음 페이지 호스트가 허용 범위 밖입니다.",
+  "Confluence returned an unexpected pagination cursor.": "Confluence 목록의 다음 페이지 커서가 올바르지 않습니다.",
+  "Confluence returned a repeated folder ID.": "Confluence 계층에서 폴더 ID가 반복되었습니다.",
+  "Confluence returned a page outside the requested scope.": "Confluence가 요청 범위 밖의 페이지를 반환했습니다.",
+  "A page changed location or became inaccessible. Run the command again.": "페이지 위치가 변경되었거나 접근할 수 없습니다. 명령을 다시 실행하세요.",
+  "Confluence returned an unexpected attachment download host.": "첨부파일 다운로드 호스트가 허용 범위 밖입니다.",
+  "Confluence returned a truncated attachment.": "Confluence가 불완전한 첨부파일을 반환했습니다.",
+  "The selected source folder does not exist in this vault.": "선택한 발행 폴더가 이 보관함에 없습니다.",
+  "Confluence did not confirm the expected update.": "Confluence에서 예상한 업데이트를 확인하지 못했습니다.",
+  "Confluence returned a cyclic parent hierarchy.": "Confluence의 상위 계층이 순환합니다.",
+  "A page changed during this run. Run the command again.": "실행 중 페이지가 변경되었습니다. 명령을 다시 실행하세요.",
+  "Confluence did not return the page's storage body.": "Confluence가 페이지의 storage 본문을 반환하지 않았습니다.",
+  "The import path is outside the configured import folder.": "저장 경로가 설정한 가져오기 폴더 밖입니다.",
+  "Confluence returned duplicate attachment names.": "Confluence가 중복된 첨부파일 이름을 반환했습니다.",
+  "A page moved during this run. Run the command again.": "실행 중 페이지가 이동했습니다. 명령을 다시 실행하세요.",
+  "The selected page is unavailable in this folder.": "이 폴더에서 선택한 페이지에 접근할 수 없습니다.",
+  "This comparison is too large for selective application. Use the regular preview.": "선택 반영으로 처리하기에는 변경이 너무 큽니다. 변경 사항 미리 보기를 사용하세요.",
+  "The comparison could not be split into changes.": "비교 결과를 개별 변경으로 나누지 못했습니다.",
+  "This note has mixed line endings. Apply the changes manually.": "노트의 줄바꿈 형식이 섞여 있습니다. 변경을 수동으로 반영하세요.",
+  "The selected changes overlap or no longer match the note.": "선택한 변경이 겹치거나 현재 노트와 일치하지 않습니다.",
+  "This page is not linked to one published note in the active source folder.": "이 페이지가 현재 발행 폴더의 노트 하나에 연결되어 있지 않습니다.",
+  "The link has an unfinished publish. Resolve it before reviewing edits.": "연결된 페이지의 이전 발행이 완료되지 않았습니다. 먼저 발행 상태를 확인하세요.",
+  "The Confluence page or destination changed. Review the latest version again.": "Confluence 페이지 또는 대상이 변경되었습니다. 최신 버전을 다시 검토하세요.",
+  "The Confluence page or its link changed. Review the latest version again.": "Confluence 페이지 또는 연결이 변경되었습니다. 최신 버전을 다시 검토하세요.",
+  "Select at least one valid change.": "반영할 수 있는 변경을 하나 이상 선택하세요.",
+  "The selected changes would not modify the note.": "선택한 변경을 적용해도 노트가 달라지지 않습니다.",
+  "The local note changed after review. Review it again.": "검토 후 로컬 노트가 변경되었습니다. 다시 검토하세요.",
+  "The Confluence page changed while preparing the backup. No local change was applied.": "백업 준비 중 Confluence 페이지가 변경되어 로컬 반영을 중단했습니다.",
+  "The local note changed while applying the selection. No local change was applied.": "선택 반영 중 로컬 노트가 변경되어 반영을 중단했습니다.",
+  "Confluence {method} returned HTTP {status}.": "Confluence {method} 요청에서 HTTP {status} 오류가 발생했습니다.",
+  "Duplicate page title in the source folder: {title}": "발행 폴더 안에 중복된 페이지 제목이 있습니다 — {title}",
+  "A source title exceeds the Confluence maximum: {title}": "Confluence 최대 길이를 초과하는 제목입니다 — {title}",
+  "An attachment exceeds this plugin's 25 MiB limit: {name}": "첨부파일이 플러그인의 25 MiB 제한을 초과합니다 — {name}",
+  "Confluence {kind} changed position, name or status: {title}": "Confluence 항목({kind})의 위치, 이름 또는 상태가 변경되었습니다 — {title}",
+  "Confluence page has an independent edit: {title}. Run Preview Confluence changes.": "Confluence 페이지가 별도로 수정되었습니다 — {title}. 변경 사항 미리 보기를 실행하세요.",
+  "A mapped item is outside the configured folder: {title}": "연결된 항목이 설정한 폴더 밖에 있습니다 — {title}",
+  "The previous create result is unknown: {title}": "이전 생성 요청의 결과를 확인할 수 없습니다 — {title}",
+  "An existing Confluence item is not linked to this source: {title}": "기존 Confluence 항목이 이 원본과 연결되어 있지 않습니다 — {title}",
+  "An attachment name exists with different content: {title}": "같은 이름의 첨부파일이 다른 내용으로 존재합니다 — {title}",
+  "A file occupies the import folder path: {path}": "가져오기 폴더 경로에 파일이 존재합니다 — {path}",
+  "A Confluence attachment exceeds the 25 MiB limit for {title}.": "페이지 {title}의 Confluence 첨부파일이 25 MiB 제한을 초과합니다.",
+  "An existing local attachment has different content: {name}": "기존 로컬 첨부파일의 내용이 다릅니다 — {name}",
+  "An existing local file has different contents: {path}": "기존 로컬 파일의 내용이 다릅니다 — {path}",
+  "Attachment exceeds the 25 MiB limit: {title}": "첨부파일이 25 MiB 제한을 초과합니다 — {title}",
+  "The linked local Markdown file is unavailable: {path}": "연결된 로컬 Markdown 파일을 찾을 수 없습니다 — {path}",
+  "Snapshot stopped after {count} copies. {reason} Check {path} for saved files.": "사본 {count}개 저장 후 중단되었습니다. {reason} 저장된 파일은 {path}에서 확인하세요.",
+};
+
+function syncLanguage(setting, appLanguage = "en") {
+  const selected = setting === "en" || setting === "ko" ? setting : appLanguage;
+  return /^ko(?:[-_]|$)/i.test(selected) ? "ko" : "en";
+}
+
+function translate(language, message, values = {}) {
+  const template = language === "ko" && Object.hasOwn(KOREAN, message) ? KOREAN[message] : message;
+  return template.replace(/\{([a-z]+)\}/gi, (token, key) => Object.hasOwn(values, key) ? String(values[key]) : token);
+}
+
+// Keep the English Error.message for diagnostics and tests; translate at the UI boundary.
+class SyncError extends Error {
+  constructor(template, values) {
+    super(translate("en", template, values));
+    this.template = template;
+    this.values = values;
+  }
+}
+
+function localizedError(error, language) {
+  if (error instanceof SyncError) return translate(language, error.template, error.values);
+  if (error instanceof ApiError) {
+    return translate(language, "Confluence {method} returned HTTP {status}.", { method: error.method, status: error.status });
+  }
+  return translate(language, error instanceof Error ? error.message : "The operation failed.");
+}
+
+const { Plugin, PluginSettingTab, Setting, SecretComponent, Notice, Modal, requestUrl, getLanguage } = require("obsidian");
 
 const DESCENDANTS_DEPTH = 10;
 const API = "/wiki/api/v2";
@@ -11,6 +213,7 @@ class ApiError extends Error {
   constructor(method, status) {
     super(`Confluence ${method} returned HTTP ${status}.`);
     this.status = status;
+    this.method = method;
   }
 }
 
@@ -289,7 +492,7 @@ class ConfluenceCloud {
 
   async downloadAttachment(pageId, file, get = binaryGet) {
     const entry = attachmentEntry(file);
-    if (entry.size > MAX_ATTACHMENT_BYTES) throw new Error("Attachment exceeds the 25 MiB limit: " + entry.title);
+    if (entry.size > MAX_ATTACHMENT_BYTES) throw new SyncError("Attachment exceeds the 25 MiB limit: {title}", { title: entry.title });
     const path = REST + "/content/" + numericId(pageId) + "/child/attachment/" +
       encodeURIComponent(file.id) + "/download?version=" + entry.version;
     const response = await get(this.gateway + path, { Authorization: this.auth });
@@ -635,9 +838,9 @@ function diffLines(before, after) {
   return lines.join("\n");
 }
 
-function lineChange(before, after) {
+function lineChange(before, after, language = "en") {
   const diff = diffLines(before, after);
-  return diff ? codeFence(diff, "diff") : "No converted Markdown body difference.";
+  return diff ? codeFence(diff, "diff") : translate(language, "No converted Markdown body difference.");
 }
 
 function parentPath(path) {
@@ -681,8 +884,8 @@ async function preparedNotes(app, config) {
   for (const file of files.sort((a, b) => a.path.localeCompare(b.path))) {
     for (const path of ancestors(file.path, config.source)) folders.add(path);
     const title = normalized(file.basename);
-    if (titles.has(title.toLowerCase())) throw new Error("Duplicate page title in the source folder: " + title);
-    if (title.length > 255) throw new Error("A source title exceeds the Confluence maximum: " + title.slice(0, 100));
+    if (titles.has(title.toLowerCase())) throw new SyncError("Duplicate page title in the source folder: {title}", { title });
+    if (title.length > 255) throw new SyncError("A source title exceeds the Confluence maximum: {title}", { title: title.slice(0, 100) });
     titles.add(title.toLowerCase());
     const source = await app.vault.read(file);
     const assets = new Map();
@@ -694,7 +897,7 @@ async function preparedNotes(app, config) {
       let asset = binaries.get(target.file.path);
       if (!asset) {
         if (target.file.stat.size > MAX_ATTACHMENT_BYTES) {
-          throw new Error("An attachment exceeds this plugin's 25 MiB limit: " + target.file.name);
+          throw new SyncError("An attachment exceeds this plugin's 25 MiB limit: {name}", { name: target.file.name });
         }
         const data = await app.vault.readBinary(target.file);
         const hash = await digest(data);
@@ -744,7 +947,7 @@ function confirmParent(kind, remote, expected, parent, title, spaceId) {
   const id = numericId(remote.id);
   if (remote.status !== "current" || String(remote.parentId) !== parent || String(remote.spaceId) !== spaceId ||
       normalized(remote.title) !== title || (expected?.id && id !== expected.id)) {
-    throw new Error("Confluence " + kind + " changed position, name or status: " + title);
+    throw new SyncError("Confluence {kind} changed position, name or status: {title}", { kind, title });
   }
   return id;
 }
@@ -753,7 +956,7 @@ function validateVersion(remote, entry) {
   const version = remote.version.number;
   if (version === entry.version) return false;
   if (entry.pending && version === entry.version + 1 && remote.version.message === entry.pending.message) return true;
-  throw new Error("Confluence page has an independent edit: " + remote.title + ". Run Preview Confluence changes.");
+  throw new SyncError("Confluence page has an independent edit: {title}. Run Preview Confluence changes.", { title: remote.title });
 }
 
 function placeholder(entry) {
@@ -771,7 +974,7 @@ class Publisher {
   async inspect(kind, entries, key, title, parent, catalog) {
     const recorded = entries[key];
     if (recorded?.id) {
-      if (!parent || !catalog.has(recorded.id)) throw new Error("A mapped item is outside the configured folder: " + title);
+      if (!parent || !catalog.has(recorded.id)) throw new SyncError("A mapped item is outside the configured folder: {title}", { title });
       const remote = kind === "page" ? await this.client.page(recorded.id) :
         await this.client.get(API + "/folders/" + recorded.id);
       confirmParent(kind, remote, recorded, parent, title, this.client.spaceId);
@@ -783,7 +986,7 @@ class Publisher {
       Array.from(catalog.values()).filter(item => parent && String(item.parentId) === parent &&
         normalized(item.title).toLowerCase() === title.toLowerCase());
     if (!matches.length) {
-      if (recorded?.creating) throw new Error("The previous create result is unknown: " + title);
+      if (recorded?.creating) throw new SyncError("The previous create result is unknown: {title}", { title });
       return null;
     }
     if (kind === "page" && recorded?.creating && matches.length === 1 && parent) {
@@ -793,7 +996,7 @@ class Publisher {
         return candidate;
       }
     }
-    throw new Error("An existing Confluence item is not linked to this source: " + title);
+    throw new SyncError("An existing Confluence item is not linked to this source: {title}", { title });
   }
 
   async plan(tree, catalog) {
@@ -883,7 +1086,7 @@ class Publisher {
           const found = existing.get(asset.name);
           if (!found) await this.client.upload(entry.id, asset);
           else if (found.comment !== asset.hash || found.fileSize !== asset.data.byteLength) {
-            throw new Error("An attachment name exists with different content: " + note.title);
+            throw new SyncError("An attachment name exists with different content: {title}", { title: note.title });
           }
         }
       }
@@ -966,7 +1169,7 @@ async function makeVaultFolders(vault, target, inbox) {
   for (const part of parts) {
     folder = folder ? folder + "/" + part : part;
     if (vault.getFolderByPath(folder)) continue;
-    if (vault.getAbstractFileByPath(folder)) throw new Error("A file occupies the import folder path: " + folder);
+    if (vault.getAbstractFileByPath(folder)) throw new SyncError("A file occupies the import folder path: {path}", { path: folder });
     try {
       await vault.createFolder(folder);
     } catch (error) {
@@ -989,7 +1192,7 @@ async function copyRemotePage(vault, client, page, trail, body, destination) {
   const inventory = attachmentInventory(attachments);
   const seen = new Set();
   if (inventory.some(asset => asset.size > MAX_ATTACHMENT_BYTES)) {
-    throw new Error("A Confluence attachment exceeds the 25 MiB limit for " + page.title + ".");
+    throw new SyncError("A Confluence attachment exceeds the 25 MiB limit for {title}.", { title: page.title });
   }
   await makeVaultFolders(vault, directory, client.config.inbox);
   if (attachments.length) await makeVaultFolders(vault, directory + "/Attachments", client.config.inbox);
@@ -1004,7 +1207,7 @@ async function copyRemotePage(vault, client, page, trail, body, destination) {
     const prior = vault.getFileByPath(path);
     if (!prior) await vault.createBinary(path, data);
     else if (await digest(await vault.readBinary(prior)) !== await digest(data)) {
-      throw new Error("An existing local attachment has different content: " + name);
+      throw new SyncError("An existing local attachment has different content: {name}", { name });
     }
     links.set(entry.title, { path: "Attachments/" + encodeURIComponent(name), image: IMAGE_FILE.test(entry.title) });
   }
@@ -1014,7 +1217,7 @@ async function copyRemotePage(vault, client, page, trail, body, destination) {
   const path = directory + "/v" + version + ".md";
   const existing = vault.getFileByPath(path);
   if (existing && await vault.read(existing) !== markdown) {
-    throw new Error("An existing local file has different contents: " + path);
+    throw new SyncError("An existing local file has different contents: {path}", { path });
   }
   const file = existing ?? await vault.create(path, markdown);
   return { file, inventory };
@@ -1032,6 +1235,8 @@ async function remotePages(client, catalog) {
 }
 
 async function downloadSnapshot(vault, client, remote, selectedId) {
+  const language = client.config.language ?? "en";
+  const t = (message, values) => translate(language, message, values);
   const copies = [];
   const selection = selectedId ? [[selectedId, remote.pages.get(selectedId)]] : Array.from(remote.pages);
   if (selection.some(([, page]) => !page)) throw new Error("The selected page is unavailable in this folder.");
@@ -1045,21 +1250,23 @@ async function downloadSnapshot(vault, client, remote, selectedId) {
       copies.push(copy.file);
     }
   } catch (error) {
-    throw new Error("Snapshot stopped after " + copies.length + " copies. " + error.message +
-      " Check " + destination + " for saved files.");
+    throw new SyncError("Snapshot stopped after {count} copies. {reason} Check {path} for saved files.",
+      { count: copies.length, reason: localizedError(error, language), path: destination });
   }
-  const summary = copies.length + " current " + (copies.length === 1 ? "copy saved" : "copies saved");
+  const summary = t("{count} current copies saved", { count: copies.length });
   if (copies.length === 1) return { file: copies[0], summary };
   const links = copies.map(file => {
     const route = file.path.slice(destination.length + 1);
     return "- [" + markdownText(parentPath(route).split("/").at(-1)) + "](<" + encodeURI(route).replace(/#/g, "%23") + ">)";
   });
   const file = await vault.create(destination + "/Snapshot index.md",
-    "# Confluence snapshot\n\n" + summary + "\n\n" + links.join("\n") + "\n");
+    "# " + t("Confluence snapshot") + "\n\n" + summary + "\n\n" + links.join("\n") + "\n");
   return { file, summary };
 }
 
 async function incoming(app, client, catalog, profile, save, importNew) {
+  const language = client.config.language ?? "en";
+  const t = (message, values) => translate(language, message, values);
   const { trails, pages } = await remotePages(client, catalog);
   const linked = new Map(Object.entries(profile.pages).filter(([, entry]) => entry.id).map(([key, entry]) =>
     [entry.id, { ...entry, path: key.slice(5) }]));
@@ -1092,7 +1299,7 @@ async function incoming(app, client, catalog, profile, save, importNew) {
         await save();
         importedCount++;
       }
-      changes.push("- New · " + label);
+      changes.push("- " + t("New") + " · " + label);
       continue;
     }
     const version = page.version.number;
@@ -1112,37 +1319,37 @@ async function incoming(app, client, catalog, profile, save, importNew) {
     if (version === local.version && !moved && !renamed && !fileChanges.length) continue;
     changedCount++;
     if (importNew) continue;
-    const details = ["### " + label, "- Confluence version " + local.version + " → " + version,
-      "- Local path: " + markdownText(local.path)];
+    const details = ["### " + label, "- " + t("Confluence version {before} → {after}", { before: local.version, after: version }),
+      "- " + t("Local path: {path}", { path: markdownText(local.path) })];
     const file = app.vault.getFileByPath(local.path);
     const localText = file ? await app.vault.read(file) : null;
     const both = linked.has(id) && localText !== null && local.sourceHash && await digest(localText) !== local.sourceHash;
-    if (both) details.push("- Both the local note and the Confluence page changed.");
-    if (moved) details.push("- The Confluence parent changed.");
-    if (renamed) details.push("- The Confluence title changed.");
+    if (both) details.push("- " + t("Both the local note and the Confluence page changed."));
+    if (moved) details.push("- " + t("The Confluence parent changed."));
+    if (renamed) details.push("- " + t("The Confluence title changed."));
     for (const file of fileChanges) {
       const versionLabel = file.before ? "v" + file.before + " → v" + file.version : "v" + file.version;
-      details.push("- Attachment " + file.kind.toLowerCase() + " · " + markdownText(file.title) + " · " + versionLabel);
+      details.push("- " + t("Attachment " + file.kind.toLowerCase()) + " · " + markdownText(file.title) + " · " + versionLabel);
     }
     if (version !== local.version) {
       const url = client.pageUrl(id);
       const latest = fromStorage(await checkedBody(client, page), url);
       try {
-        details.push(lineChange(fromStorage(await checkedBody(client, page, local.version), url), latest));
+        details.push(lineChange(fromStorage(await checkedBody(client, page, local.version), url), latest, language));
       } catch (error) {
         if (!(error instanceof ApiError) || ![403, 404].includes(error.status)) throw error;
-        details.push("The previous version cannot be read.", codeFence(latest, "markdown"));
+        details.push(t("The previous version cannot be read."), codeFence(latest, "markdown"));
       }
-      if (both) details.push("Current local text compared with Confluence:", lineChange(localText, latest));
+      if (both) details.push(t("Current local text compared with Confluence:"), lineChange(localText, latest, language));
     }
     changes.push(details.join("\n\n"));
   }
 
   const missing = new Set([...linked.keys(), ...Object.keys(profile.imports)]);
   for (const id of pages.keys()) missing.delete(id);
-  for (const id of missing) changes.push("- Outside the selected hierarchy or unavailable · " + client.pageUrl(id));
-  const summary = newCount + " new · " + changedCount + " changed · " + importedCount +
-    " imported · " + missing.size + " unavailable";
+  for (const id of missing) changes.push("- " + t("Outside the selected hierarchy or unavailable") + " · " + client.pageUrl(id));
+  const summary = t("{new} new · {changed} changed · {imported} imported · {missing} unavailable",
+    { new: newCount, changed: changedCount, imported: importedCount, missing: missing.size });
   const title = importNew ? "Confluence import report" : "Confluence change preview";
   const date = new Date().toISOString().replace(/[:.]/g, "-");
   const path = client.config.inbox + "/" + title + " " + date + " " + crypto.randomUUID().slice(0, 8) + ".md";
@@ -1151,10 +1358,10 @@ async function incoming(app, client, catalog, profile, save, importNew) {
     "Review the differences and copy the changes you want to incorporate into the original note.";
   if (baselines) {
     await save();
-    changes.unshift("Recorded current attachment versions for " + baselines + " previously tracked pages.");
+    changes.unshift(t("Recorded current attachment versions for {count} previously tracked pages.", { count: baselines }));
   }
   await makeVaultFolders(app.vault, client.config.inbox, client.config.inbox);
-  const file = await app.vault.create(path, "# " + title + "\n\n" + summary + "\n\n" + instructions +
+  const file = await app.vault.create(path, "# " + t(title) + "\n\n" + summary + "\n\n" + t(instructions) +
     (changes.length ? "\n\n" + changes.join("\n\n") : "") + "\n");
   return { file, summary };
 }
@@ -1260,7 +1467,7 @@ async function prepareLocalReview(app, client, profile, page) {
     throw new Error("The link has an unfinished publish. Resolve it before reviewing edits.");
   }
   const file = app.vault.getFileByPath(path);
-  if (!file || file.extension !== "md") throw new Error("The linked local Markdown file is unavailable: " + path);
+  if (!file || file.extension !== "md") throw new SyncError("The linked local Markdown file is unavailable: {path}", { path });
   const original = await app.vault.read(file);
   const latest = await checkedBody(client, page);
   const prior = page.version.number === entry.version ? latest : await checkedBody(client, page, entry.version);
@@ -1323,9 +1530,10 @@ class SyncDashboard extends Modal {
   constructor(plugin) {
     super(plugin.app);
     this.plugin = plugin;
+    this.t = (message, values) => plugin.t(message, values);
     this.pages = [];
     this.versions = [];
-    this.status = "Load pages to view their Confluence versions.";
+    this.status = this.t("Load pages to view their Confluence versions.");
   }
 
   onOpen() {
@@ -1340,28 +1548,28 @@ class SyncDashboard extends Modal {
   }
 
   render() {
-    const { contentEl } = this;
+    const { contentEl, t } = this;
     contentEl.empty();
     contentEl.createEl("h2", { text: "Confluence Folder Sync" });
     contentEl.createEl("p", { text: this.status, attr: { role: "status", "aria-live": "polite" } });
     const button = (label, callback, disabled = false) => component =>
-      component.setButtonText(label).setDisabled(this.busy || disabled).onClick(callback);
+      component.setButtonText(t(label)).setDisabled(this.busy || disabled).onClick(callback);
     const command = action => () => {
       this.close();
       void this.plugin.run(action);
     };
-    new Setting(contentEl).setName("Check and sync")
+    new Setting(contentEl).setName(t("Check and sync"))
       .addButton(button("Preview changes", command("preview")))
       .addButton(button("Import new pages", command("import")))
       .addButton(button("Publish folder", command("publish"), !this.plugin.data.settings.allowPublish));
-    new Setting(contentEl).setName("Download the full folder")
-      .setDesc("Save every current page as a new snapshot under the import folder.")
+    new Setting(contentEl).setName(t("Download the full folder"))
+      .setDesc(t("Save every current page as a new snapshot under the import folder."))
       .addButton(button("Download snapshot", () => this.saveSnapshot()));
-    new Setting(contentEl).setName("Page versions")
+    new Setting(contentEl).setName(t("Page versions"))
       .addButton(button("Load pages", () => this.loadPages()));
 
     if (!this.pages.length) return;
-    const selectPage = new Setting(contentEl).setName("Confluence page");
+    const selectPage = new Setting(contentEl).setName(t("Confluence page"));
     selectPage.addDropdown(dropdown => {
       this.pageDropdown = dropdown;
       dropdown.setDisabled(this.busy);
@@ -1375,10 +1583,10 @@ class SyncDashboard extends Modal {
         this.render();
       });
     });
-    new Setting(contentEl).setName("Filter pages")
-      .addText(input => input.setValue(this.filter ?? "").setPlaceholder("Title or folder")
+    new Setting(contentEl).setName(t("Filter pages"))
+      .addText(input => input.setValue(this.filter ?? "").setPlaceholder(t("Title or folder"))
         .setDisabled(this.busy).onChange(value => this.filterPages(value)));
-    new Setting(contentEl).setName("Selected page")
+    new Setting(contentEl).setName(t("Selected page"))
       .addButton(button("Load versions", () => this.loadVersions(), !this.pageId))
       .addButton(button("Review local application", () => this.loadReview(), !this.pageId))
       .addButton(button("Download latest copy", () => this.saveSnapshot(this.pageId), !this.pageId));
@@ -1392,23 +1600,23 @@ class SyncDashboard extends Modal {
         }
         dropdown.setValue(String(this[field])).onChange(value => { this[field] = Number(value); });
       };
-      new Setting(contentEl).setName("Compare versions")
-        .addDropdown(version("before", "Base version"))
-        .addDropdown(version("after", "Comparison version"))
+      new Setting(contentEl).setName(t("Compare versions"))
+        .addDropdown(version("before", t("Base version")))
+        .addDropdown(version("after", t("Comparison version")))
         .addButton(button("Compare", () => this.compareVersions()));
     }
     if (this.difference) {
       contentEl.createEl("h3", { text: this.difference.title });
-      this.renderDiff(contentEl, this.difference.text.split("\n"), "Version differences");
+      this.renderDiff(contentEl, this.difference.text.split("\n"), t("Version differences"));
     }
     if (this.review?.hunks.length) {
       const { path, baseVersion, version, hunks } = this.review;
-      contentEl.createEl("h3", { text: "Apply selected changes to " + path });
+      contentEl.createEl("h3", { text: t("Apply selected changes to {path}", { path }) });
       contentEl.createEl("p", { text: "Confluence v" + baseVersion + " → v" + version });
       for (const [index, hunk] of hunks.entries()) {
-        const label = "Change " + (index + 1);
+        const label = t("Change {number}", { number: index + 1 });
         new Setting(contentEl).setName(label).setDesc(hunk.at === null ?
-          "The local context is missing or ambiguous." : "Local line " + (hunk.at + 1))
+          t("The local context is missing or ambiguous.") : t("Local line {number}", { number: hunk.at + 1 }))
           .addToggle(toggle => toggle.setDisabled(this.busy || hunk.at === null)
             .setValue(this.selection.has(index)).onChange(enabled => {
               if (enabled) this.selection.add(index);
@@ -1425,7 +1633,7 @@ class SyncDashboard extends Modal {
       });
     }
     if (this.backup) {
-      new Setting(contentEl).setName("Backup saved")
+      new Setting(contentEl).setName(t("Backup saved"))
         .addButton(button("Open backup", async () => {
           const file = this.app.vault.getFileByPath(this.backup);
           if (file) await this.app.workspace.getLeaf("tab").openFile(file);
@@ -1447,7 +1655,7 @@ class SyncDashboard extends Modal {
     const term = normalized(text.trim()).toLowerCase();
     const dropdown = this.pageDropdown;
     dropdown.selectEl.replaceChildren();
-    dropdown.addOption("", "Choose a page");
+    dropdown.addOption("", this.t("Choose a page"));
     for (const page of this.pages) {
       if (normalized(page.label).toLowerCase().includes(term) || page.id === this.pageId) {
         dropdown.addOption(page.id, page.label);
@@ -1459,12 +1667,12 @@ class SyncDashboard extends Modal {
   async perform(message, task) {
     if (this.busy) return;
     this.busy = true;
-    this.status = message;
+    this.status = this.t(message);
     this.render();
     try {
       await this.plugin.withConnection(task);
     } catch (error) {
-      this.status = error instanceof Error ? error.message : "The Confluence action failed.";
+      this.status = localizedError(error, this.plugin.language);
     } finally {
       this.busy = false;
       if (this.opened) this.render();
@@ -1483,7 +1691,7 @@ class SyncDashboard extends Modal {
         this.difference = null;
         this.review = null;
       }
-      this.status = folder.title + " · " + this.pages.length + " pages";
+      this.status = this.t("{folder} · {count} pages", { folder: folder.title, count: this.pages.length });
     });
   }
 
@@ -1508,7 +1716,7 @@ class SyncDashboard extends Modal {
       this.after = this.versions[0].number;
       this.before = this.versions[1]?.number;
       this.difference = null;
-      this.status = page.title + " · " + this.versions.length + " available versions";
+      this.status = this.t("{title} · {count} available versions", { title: page.title, count: this.versions.length });
     });
   }
 
@@ -1521,8 +1729,8 @@ class SyncDashboard extends Modal {
       const [oldBody, newBody] = await Promise.all([checkedBody(client, page, before), checkedBody(client, page, after)]);
       const diff = diffLines(fromStorage(oldBody, url), fromStorage(newBody, url));
       this.difference = { title: page.title + " · v" + before + " → v" + after,
-        text: diff || "No converted Markdown body difference." };
-      this.status = "Version comparison complete.";
+        text: diff || this.t("No converted Markdown body difference.") };
+      this.status = this.t("Version comparison complete.");
     });
   }
 
@@ -1534,7 +1742,8 @@ class SyncDashboard extends Modal {
       this.selection = new Set();
       const total = this.review.hunks.length;
       const available = this.review.hunks.filter(hunk => hunk.at !== null).length;
-      this.status = total ? available + " of " + total + " changes match the local note." : "No incoming body changes.";
+      this.status = total ? this.t("{available} of {total} changes match the local note.", { available, total }) :
+        this.t("No incoming body changes.");
     });
   }
 
@@ -1543,18 +1752,18 @@ class SyncDashboard extends Modal {
     const selection = Array.from(this.selection);
     return this.selected("Checking the selected changes…", async (client, page, profile) => {
       if (!this.opened) return;
-      const approved = await this.plugin.confirm("Apply selected changes",
-        "Apply " + selection.length + " changes to " + review.path + "? A backup will be saved first.",
-        "Apply changes");
+      const approved = await this.plugin.confirm(this.t("Apply selected changes"),
+        this.t("Apply {count} changes to {path}? A backup will be saved first.", { count: selection.length, path: review.path }),
+        this.t("Apply changes"));
       if (!approved || !this.opened) {
-        this.status = "Application cancelled.";
+        this.status = this.t("Application cancelled.");
         return;
       }
       const result = await applyLocalReview(this.app, client, profile, page, review, selection);
       this.review = null;
       this.selection = new Set();
       this.backup = result.backup;
-      this.status = result.count + " changes applied to the local note.";
+      this.status = this.t("{count} changes applied to the local note.", { count: result.count });
     });
   }
 
@@ -1565,13 +1774,13 @@ class SyncDashboard extends Modal {
       if (!id) {
         if (!remote.pages.size) throw new Error("The selected folder contains no pages.");
         const approved = await this.plugin.confirm(
-          "Download Confluence snapshot",
-          "Save the current versions of " + remote.pages.size + " pages from " + folder.title +
-          " in a new snapshot under " + client.config.inbox + "?",
-          "Download snapshot",
+          this.t("Download Confluence snapshot"),
+          this.t("Save the current versions of {count} pages from {folder} in a new snapshot under {inbox}?",
+            { count: remote.pages.size, folder: folder.title, inbox: client.config.inbox }),
+          this.t("Download snapshot"),
         );
         if (!approved || !this.opened) {
-          this.status = "Snapshot cancelled.";
+          this.status = this.t("Snapshot cancelled.");
           return;
         }
       }
@@ -1586,15 +1795,16 @@ class SyncDashboard extends Modal {
 
 const DEFAULT_SETTINGS = {
   folderUrl: "", source: "Confluence source", inbox: "Confluence inbox",
-  email: "", secretId: "", allowPublish: false,
+  email: "", secretId: "", allowPublish: false, language: "auto",
 };
 
 class Confirmation extends Modal {
-  constructor(app, title, summary, buttonLabel, accept) {
+  constructor(app, title, summary, buttonLabel, cancelLabel, accept) {
     super(app);
     this.title = title;
     this.summary = summary;
     this.buttonLabel = buttonLabel;
+    this.cancelLabel = cancelLabel;
     this.accept = accept;
     this.confirmed = false;
   }
@@ -1603,7 +1813,7 @@ class Confirmation extends Modal {
     this.contentEl.createEl("h2", { text: this.title });
     this.contentEl.createEl("p", { text: this.summary });
     new Setting(this.contentEl)
-      .addButton(button => button.setButtonText("Cancel").onClick(() => this.close()))
+      .addButton(button => button.setButtonText(this.cancelLabel).onClick(() => this.close()))
       .addButton(button => button.setButtonText(this.buttonLabel).setCta().onClick(() => {
         this.confirmed = true;
         this.close();
@@ -1626,21 +1836,30 @@ class SyncSettings extends PluginSettingTab {
     const { containerEl, plugin } = this;
     containerEl.empty();
     const settings = plugin.data.settings;
+    const t = (message, values) => plugin.t(message, values);
+    new Setting(containerEl).setName(t("Language"))
+      .setDesc(t("Follow Obsidian or choose the language for this plugin."))
+      .addDropdown(dropdown => dropdown.addOption("auto", t("Follow Obsidian"))
+        .addOption("en", "English").addOption("ko", "한국어").setValue(settings.language)
+        .onChange(async value => {
+          await plugin.configure("language", value);
+          this.display();
+        }));
     const text = (name, description, property, placeholder) => {
-      new Setting(containerEl).setName(name).setDesc(description).addText(field => {
+      new Setting(containerEl).setName(t(name)).setDesc(t(description)).addText(field => {
         field.setValue(settings[property]).setPlaceholder(placeholder).onChange(value => plugin.configure(property, value));
       });
     };
     text("Confluence folder URL", "Copy the URL of a folder from the Confluence sidebar.", "folderUrl", "https://example.atlassian.net/wiki/spaces/DOC/folder/1234");
     text("Atlassian email", "Use the account that issued the Confluence Cloud token.", "email", "name@example.com");
-    new Setting(containerEl).setName("Confluence API token").setDesc("Select a scoped Atlassian API token stored in Obsidian.")
+    new Setting(containerEl).setName(t("Confluence API token")).setDesc(t("Select a scoped Atlassian API token stored in Obsidian."))
       .addComponent(el => new SecretComponent(plugin.app, el).setValue(settings.secretId)
         .onChange(value => plugin.configure("secretId", value ?? "")));
     text("Source vault folder", "Publish only notes and referenced files from this folder.", "source", "Project");
     text("Import vault folder", "Save previews and imported copies in a separate folder.", "inbox", "Confluence inbox");
-    new Setting(containerEl).setName("Enable publish").setDesc("Allow explicit, confirmed uploads from this vault.")
+    new Setting(containerEl).setName(t("Enable publish")).setDesc(t("Allow explicit, confirmed uploads from this vault."))
       .addToggle(toggle => toggle.setValue(settings.allowPublish).onChange(value => plugin.configure("allowPublish", value)));
-    new Setting(containerEl).setName("Connection").addButton(button => button.setButtonText("Test connection")
+    new Setting(containerEl).setName(t("Connection")).addButton(button => button.setButtonText(t("Test connection"))
       .onClick(() => plugin.run("connect")));
   }
 }
@@ -1652,11 +1871,31 @@ class ConfluenceFolderSync extends Plugin {
     this.saving = Promise.resolve();
     this.addSettingTab(new SyncSettings(this));
     const openDashboard = () => new SyncDashboard(this).open();
-    this.addRibbonIcon("arrow-right-left", "Open Confluence sync dashboard", openDashboard);
-    this.addCommand({ id: "dashboard", name: "Open sync dashboard", callback: openDashboard });
-    this.addCommand({ id: "publish", name: "Publish vault folder to Confluence", callback: () => this.run("publish") });
-    this.addCommand({ id: "preview", name: "Preview Confluence changes", callback: () => this.run("preview") });
-    this.addCommand({ id: "import", name: "Import new Confluence pages", callback: () => this.run("import") });
+    this.ribbon = this.addRibbonIcon("arrow-right-left", this.t("Open Confluence sync dashboard"), openDashboard);
+    this.commandDefinitions = [
+      { id: "dashboard", name: "Open sync dashboard", callback: openDashboard },
+      { id: "publish", name: "Publish vault folder to Confluence", callback: () => this.run("publish") },
+      { id: "preview", name: "Preview Confluence changes", callback: () => this.run("preview") },
+      { id: "import", name: "Import new Confluence pages", callback: () => this.run("import") },
+    ];
+    this.registerCommands();
+  }
+
+  get language() {
+    return syncLanguage(this.data.settings.language, typeof getLanguage === "function" ? getLanguage() : "en");
+  }
+
+  t(message, values) {
+    return translate(this.language, message, values);
+  }
+
+  registerCommands() {
+    for (const command of this.commandDefinitions) {
+      if (this.commandsRegistered) this.removeCommand(command.id);
+      this.addCommand({ ...command, name: this.t(command.name) });
+    }
+    this.commandsRegistered = true;
+    this.ribbon.setAttribute("aria-label", this.t("Open Confluence sync dashboard"));
   }
 
   persist() {
@@ -1670,13 +1909,14 @@ class ConfluenceFolderSync extends Plugin {
     this.data.settings[key] = value;
     try {
       await this.persist();
+      if (key === "language") this.registerCommands();
     } catch {
-      new Notice("Confluence Folder Sync could not save the settings.");
+      new Notice(this.t("Confluence Folder Sync could not save the settings."));
     }
   }
 
   confirm(title, summary, button) {
-    return new Promise(resolve => new Confirmation(this.app, title, summary, button, resolve).open());
+    return new Promise(resolve => new Confirmation(this.app, title, summary, button, this.t("Cancel"), resolve).open());
   }
 
   async withConnection(task) {
@@ -1684,7 +1924,7 @@ class ConfluenceFolderSync extends Plugin {
     this.running = true;
     try {
       await this.saving;
-      const config = validatedConfig(this.data.settings);
+      const config = validatedConfig({ ...this.data.settings, language: this.language });
       const token = this.app.secretStorage.getSecret(config.secretId);
       if (!token) throw new Error("Choose a valid token in the plugin settings.");
       const client = new ConfluenceCloud(config, token);
@@ -1698,11 +1938,11 @@ class ConfluenceFolderSync extends Plugin {
   }
 
   async run(action) {
-    const progress = new Notice("Connecting to Confluence…", 0);
+    const progress = new Notice(this.t("Connecting to Confluence…"), 0);
     try {
       await this.withConnection(async ({ client, folder, config, profile, save }) => {
         if (action === "connect") {
-          new Notice("Connected to Confluence folder " + folder.title + " (" + config.folderId + ").");
+          new Notice(this.t("Connected to Confluence folder {title} ({id}).", { title: folder.title, id: config.folderId }));
           return;
         }
         if (action === "publish" && !config.allowPublish) {
@@ -1720,21 +1960,22 @@ class ConfluenceFolderSync extends Plugin {
         const publisher = new Publisher(client, this.app, profile, save);
         await publisher.plan(tree, catalog);
         progress.hide();
-        const approved = await this.confirm("Publish to Confluence",
-          "Publish " + tree.notes.length + " notes from " + config.source + " to " +
-          new URL(config.origin).hostname + " / " + folder.title + " (folder " + config.folderId + ").",
-          "Publish");
+        const approved = await this.confirm(this.t("Publish to Confluence"),
+          this.t("Publish {count} notes from {source} to {host} / {folder} (folder {id}).",
+            { count: tree.notes.length, source: config.source, host: new URL(config.origin).hostname,
+              folder: folder.title, id: config.folderId }), this.t("Publish"));
         if (!approved) return;
-        const status = new Notice("Publishing to Confluence…", 0);
+        const status = new Notice(this.t("Publishing to Confluence…"), 0);
         try {
           const updated = await publisher.publish(tree, catalog);
-          new Notice("Confluence: " + updated + " updated, " + (tree.notes.length - updated) + " unchanged.");
+          new Notice(this.t("Confluence: {updated} updated, {unchanged} unchanged.",
+            { updated, unchanged: tree.notes.length - updated }));
         } finally {
           status.hide();
         }
       });
     } catch (error) {
-      const message = error instanceof ApiError || error instanceof Error ? error.message : "The operation failed.";
+      const message = localizedError(error, this.language);
       new Notice("Confluence Folder Sync: " + message, 12000);
     } finally {
       progress.hide();

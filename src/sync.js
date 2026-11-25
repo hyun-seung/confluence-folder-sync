@@ -39,8 +39,8 @@ async function preparedNotes(app, config) {
   for (const file of files.sort((a, b) => a.path.localeCompare(b.path))) {
     for (const path of ancestors(file.path, config.source)) folders.add(path);
     const title = normalized(file.basename);
-    if (titles.has(title.toLowerCase())) throw new Error("Duplicate page title in the source folder: " + title);
-    if (title.length > 255) throw new Error("A source title exceeds the Confluence maximum: " + title.slice(0, 100));
+    if (titles.has(title.toLowerCase())) throw new SyncError("Duplicate page title in the source folder: {title}", { title });
+    if (title.length > 255) throw new SyncError("A source title exceeds the Confluence maximum: {title}", { title: title.slice(0, 100) });
     titles.add(title.toLowerCase());
     const source = await app.vault.read(file);
     const assets = new Map();
@@ -52,7 +52,7 @@ async function preparedNotes(app, config) {
       let asset = binaries.get(target.file.path);
       if (!asset) {
         if (target.file.stat.size > MAX_ATTACHMENT_BYTES) {
-          throw new Error("An attachment exceeds this plugin's 25 MiB limit: " + target.file.name);
+          throw new SyncError("An attachment exceeds this plugin's 25 MiB limit: {name}", { name: target.file.name });
         }
         const data = await app.vault.readBinary(target.file);
         const hash = await digest(data);
@@ -102,7 +102,7 @@ function confirmParent(kind, remote, expected, parent, title, spaceId) {
   const id = numericId(remote.id);
   if (remote.status !== "current" || String(remote.parentId) !== parent || String(remote.spaceId) !== spaceId ||
       normalized(remote.title) !== title || (expected?.id && id !== expected.id)) {
-    throw new Error("Confluence " + kind + " changed position, name or status: " + title);
+    throw new SyncError("Confluence {kind} changed position, name or status: {title}", { kind, title });
   }
   return id;
 }
@@ -111,7 +111,7 @@ function validateVersion(remote, entry) {
   const version = remote.version.number;
   if (version === entry.version) return false;
   if (entry.pending && version === entry.version + 1 && remote.version.message === entry.pending.message) return true;
-  throw new Error("Confluence page has an independent edit: " + remote.title + ". Run Preview Confluence changes.");
+  throw new SyncError("Confluence page has an independent edit: {title}. Run Preview Confluence changes.", { title: remote.title });
 }
 
 function placeholder(entry) {
@@ -129,7 +129,7 @@ class Publisher {
   async inspect(kind, entries, key, title, parent, catalog) {
     const recorded = entries[key];
     if (recorded?.id) {
-      if (!parent || !catalog.has(recorded.id)) throw new Error("A mapped item is outside the configured folder: " + title);
+      if (!parent || !catalog.has(recorded.id)) throw new SyncError("A mapped item is outside the configured folder: {title}", { title });
       const remote = kind === "page" ? await this.client.page(recorded.id) :
         await this.client.get(API + "/folders/" + recorded.id);
       confirmParent(kind, remote, recorded, parent, title, this.client.spaceId);
@@ -141,7 +141,7 @@ class Publisher {
       Array.from(catalog.values()).filter(item => parent && String(item.parentId) === parent &&
         normalized(item.title).toLowerCase() === title.toLowerCase());
     if (!matches.length) {
-      if (recorded?.creating) throw new Error("The previous create result is unknown: " + title);
+      if (recorded?.creating) throw new SyncError("The previous create result is unknown: {title}", { title });
       return null;
     }
     if (kind === "page" && recorded?.creating && matches.length === 1 && parent) {
@@ -151,7 +151,7 @@ class Publisher {
         return candidate;
       }
     }
-    throw new Error("An existing Confluence item is not linked to this source: " + title);
+    throw new SyncError("An existing Confluence item is not linked to this source: {title}", { title });
   }
 
   async plan(tree, catalog) {
@@ -241,7 +241,7 @@ class Publisher {
           const found = existing.get(asset.name);
           if (!found) await this.client.upload(entry.id, asset);
           else if (found.comment !== asset.hash || found.fileSize !== asset.data.byteLength) {
-            throw new Error("An attachment name exists with different content: " + note.title);
+            throw new SyncError("An attachment name exists with different content: {title}", { title: note.title });
           }
         }
       }
@@ -324,7 +324,7 @@ async function makeVaultFolders(vault, target, inbox) {
   for (const part of parts) {
     folder = folder ? folder + "/" + part : part;
     if (vault.getFolderByPath(folder)) continue;
-    if (vault.getAbstractFileByPath(folder)) throw new Error("A file occupies the import folder path: " + folder);
+    if (vault.getAbstractFileByPath(folder)) throw new SyncError("A file occupies the import folder path: {path}", { path: folder });
     try {
       await vault.createFolder(folder);
     } catch (error) {
@@ -347,7 +347,7 @@ async function copyRemotePage(vault, client, page, trail, body, destination) {
   const inventory = attachmentInventory(attachments);
   const seen = new Set();
   if (inventory.some(asset => asset.size > MAX_ATTACHMENT_BYTES)) {
-    throw new Error("A Confluence attachment exceeds the 25 MiB limit for " + page.title + ".");
+    throw new SyncError("A Confluence attachment exceeds the 25 MiB limit for {title}.", { title: page.title });
   }
   await makeVaultFolders(vault, directory, client.config.inbox);
   if (attachments.length) await makeVaultFolders(vault, directory + "/Attachments", client.config.inbox);
@@ -362,7 +362,7 @@ async function copyRemotePage(vault, client, page, trail, body, destination) {
     const prior = vault.getFileByPath(path);
     if (!prior) await vault.createBinary(path, data);
     else if (await digest(await vault.readBinary(prior)) !== await digest(data)) {
-      throw new Error("An existing local attachment has different content: " + name);
+      throw new SyncError("An existing local attachment has different content: {name}", { name });
     }
     links.set(entry.title, { path: "Attachments/" + encodeURIComponent(name), image: IMAGE_FILE.test(entry.title) });
   }
@@ -372,7 +372,7 @@ async function copyRemotePage(vault, client, page, trail, body, destination) {
   const path = directory + "/v" + version + ".md";
   const existing = vault.getFileByPath(path);
   if (existing && await vault.read(existing) !== markdown) {
-    throw new Error("An existing local file has different contents: " + path);
+    throw new SyncError("An existing local file has different contents: {path}", { path });
   }
   const file = existing ?? await vault.create(path, markdown);
   return { file, inventory };
@@ -390,6 +390,8 @@ async function remotePages(client, catalog) {
 }
 
 async function downloadSnapshot(vault, client, remote, selectedId) {
+  const language = client.config.language ?? "en";
+  const t = (message, values) => translate(language, message, values);
   const copies = [];
   const selection = selectedId ? [[selectedId, remote.pages.get(selectedId)]] : Array.from(remote.pages);
   if (selection.some(([, page]) => !page)) throw new Error("The selected page is unavailable in this folder.");
@@ -403,21 +405,23 @@ async function downloadSnapshot(vault, client, remote, selectedId) {
       copies.push(copy.file);
     }
   } catch (error) {
-    throw new Error("Snapshot stopped after " + copies.length + " copies. " + error.message +
-      " Check " + destination + " for saved files.");
+    throw new SyncError("Snapshot stopped after {count} copies. {reason} Check {path} for saved files.",
+      { count: copies.length, reason: localizedError(error, language), path: destination });
   }
-  const summary = copies.length + " current " + (copies.length === 1 ? "copy saved" : "copies saved");
+  const summary = t("{count} current copies saved", { count: copies.length });
   if (copies.length === 1) return { file: copies[0], summary };
   const links = copies.map(file => {
     const route = file.path.slice(destination.length + 1);
     return "- [" + markdownText(parentPath(route).split("/").at(-1)) + "](<" + encodeURI(route).replace(/#/g, "%23") + ">)";
   });
   const file = await vault.create(destination + "/Snapshot index.md",
-    "# Confluence snapshot\n\n" + summary + "\n\n" + links.join("\n") + "\n");
+    "# " + t("Confluence snapshot") + "\n\n" + summary + "\n\n" + links.join("\n") + "\n");
   return { file, summary };
 }
 
 async function incoming(app, client, catalog, profile, save, importNew) {
+  const language = client.config.language ?? "en";
+  const t = (message, values) => translate(language, message, values);
   const { trails, pages } = await remotePages(client, catalog);
   const linked = new Map(Object.entries(profile.pages).filter(([, entry]) => entry.id).map(([key, entry]) =>
     [entry.id, { ...entry, path: key.slice(5) }]));
@@ -450,7 +454,7 @@ async function incoming(app, client, catalog, profile, save, importNew) {
         await save();
         importedCount++;
       }
-      changes.push("- New · " + label);
+      changes.push("- " + t("New") + " · " + label);
       continue;
     }
     const version = page.version.number;
@@ -470,37 +474,37 @@ async function incoming(app, client, catalog, profile, save, importNew) {
     if (version === local.version && !moved && !renamed && !fileChanges.length) continue;
     changedCount++;
     if (importNew) continue;
-    const details = ["### " + label, "- Confluence version " + local.version + " → " + version,
-      "- Local path: " + markdownText(local.path)];
+    const details = ["### " + label, "- " + t("Confluence version {before} → {after}", { before: local.version, after: version }),
+      "- " + t("Local path: {path}", { path: markdownText(local.path) })];
     const file = app.vault.getFileByPath(local.path);
     const localText = file ? await app.vault.read(file) : null;
     const both = linked.has(id) && localText !== null && local.sourceHash && await digest(localText) !== local.sourceHash;
-    if (both) details.push("- Both the local note and the Confluence page changed.");
-    if (moved) details.push("- The Confluence parent changed.");
-    if (renamed) details.push("- The Confluence title changed.");
+    if (both) details.push("- " + t("Both the local note and the Confluence page changed."));
+    if (moved) details.push("- " + t("The Confluence parent changed."));
+    if (renamed) details.push("- " + t("The Confluence title changed."));
     for (const file of fileChanges) {
       const versionLabel = file.before ? "v" + file.before + " → v" + file.version : "v" + file.version;
-      details.push("- Attachment " + file.kind.toLowerCase() + " · " + markdownText(file.title) + " · " + versionLabel);
+      details.push("- " + t("Attachment " + file.kind.toLowerCase()) + " · " + markdownText(file.title) + " · " + versionLabel);
     }
     if (version !== local.version) {
       const url = client.pageUrl(id);
       const latest = fromStorage(await checkedBody(client, page), url);
       try {
-        details.push(lineChange(fromStorage(await checkedBody(client, page, local.version), url), latest));
+        details.push(lineChange(fromStorage(await checkedBody(client, page, local.version), url), latest, language));
       } catch (error) {
         if (!(error instanceof ApiError) || ![403, 404].includes(error.status)) throw error;
-        details.push("The previous version cannot be read.", codeFence(latest, "markdown"));
+        details.push(t("The previous version cannot be read."), codeFence(latest, "markdown"));
       }
-      if (both) details.push("Current local text compared with Confluence:", lineChange(localText, latest));
+      if (both) details.push(t("Current local text compared with Confluence:"), lineChange(localText, latest, language));
     }
     changes.push(details.join("\n\n"));
   }
 
   const missing = new Set([...linked.keys(), ...Object.keys(profile.imports)]);
   for (const id of pages.keys()) missing.delete(id);
-  for (const id of missing) changes.push("- Outside the selected hierarchy or unavailable · " + client.pageUrl(id));
-  const summary = newCount + " new · " + changedCount + " changed · " + importedCount +
-    " imported · " + missing.size + " unavailable";
+  for (const id of missing) changes.push("- " + t("Outside the selected hierarchy or unavailable") + " · " + client.pageUrl(id));
+  const summary = t("{new} new · {changed} changed · {imported} imported · {missing} unavailable",
+    { new: newCount, changed: changedCount, imported: importedCount, missing: missing.size });
   const title = importNew ? "Confluence import report" : "Confluence change preview";
   const date = new Date().toISOString().replace(/[:.]/g, "-");
   const path = client.config.inbox + "/" + title + " " + date + " " + crypto.randomUUID().slice(0, 8) + ".md";
@@ -509,10 +513,10 @@ async function incoming(app, client, catalog, profile, save, importNew) {
     "Review the differences and copy the changes you want to incorporate into the original note.";
   if (baselines) {
     await save();
-    changes.unshift("Recorded current attachment versions for " + baselines + " previously tracked pages.");
+    changes.unshift(t("Recorded current attachment versions for {count} previously tracked pages.", { count: baselines }));
   }
   await makeVaultFolders(app.vault, client.config.inbox, client.config.inbox);
-  const file = await app.vault.create(path, "# " + title + "\n\n" + summary + "\n\n" + instructions +
+  const file = await app.vault.create(path, "# " + t(title) + "\n\n" + summary + "\n\n" + t(instructions) +
     (changes.length ? "\n\n" + changes.join("\n\n") : "") + "\n");
   return { file, summary };
 }
