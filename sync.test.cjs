@@ -6,7 +6,7 @@ const fromBundle = new Function("require", "module",
   readFileSync("main.js", "utf8") + "\nreturn { validatedConfig, vaultPath, markdownLines, toStorage, " +
   "ConfluenceCloud, Publisher, preparedNotes, pageTrails, digest, lineChange, fromStorage, " +
   "attachmentInventory, attachmentDiff, reviewHunks, matchHunk, mergeSelected, applyLocalReview, " +
-  "KOREAN, syncLanguage, translate, localizedError, SyncError, ApiError };");
+  "KOREAN, syncLanguage, translate, localizedError, SyncError, ApiError, publicationReview, publishSelection };");
 const fakeModule = { exports: {} };
 const lib = fromBundle(() => ({ Plugin: class {}, PluginSettingTab: class {}, Modal: class {} }), fakeModule);
 const fixtureConfig = {
@@ -102,6 +102,7 @@ function memoryCloud(config) {
   const files = new Map();
   const remote = {
     config, spaceId: "300", records, stats,
+    catalog: async () => new Map(records),
     pageUrl: id => config.origin + "/wiki/pages/viewpage.action?pageId=" + id,
     page: async id => structuredClone(records.get(id)),
     pageTitles: async title => Array.from(records.values()).filter(item => item.type === "page" && item.title === title),
@@ -331,3 +332,71 @@ test("a migrated baseline preserves unchanged formatter output but publishes lat
   assert.equal(entry.migratedInputHash, undefined);
 });
 
+
+function selectionFixture() {
+  const config = lib.validatedConfig({ ...fixtureConfig, allowPublish: true });
+  const remote = memoryCloud(config);
+  const profile = { folders: {}, pages: {}, imports: {} };
+  const files = ["Docs/One.md", "Docs/Two.md", "Docs/Nested/Three.md"].map(path =>
+    ({ path, basename: path.split("/").at(-1).slice(0, -3), extension: "md" }));
+  const bodies = new Map(files.map(file => [file.path, "# " + file.basename]));
+  const app = { vault: { getFolderByPath: () => ({}), getMarkdownFiles: () => files,
+    getFileByPath: path => files.find(file => file.path === path), read: async file => bodies.get(file.path) },
+    metadataCache: { getFirstLinkpathDest: target => files.find(file => file.basename === target) } };
+  const review = async () => lib.publicationReview(app, remote, profile,
+    await lib.preparedNotes(app, config), await remote.catalog());
+  const publish = async (plan, paths) => lib.publishSelection(app, remote, profile, async () => {}, plan, paths);
+  return { config, remote, profile, files, bodies, app, review, publish };
+}
+
+test("selective publication writes only selected notes and ancestors and keeps existing unselected links", async () => {
+  const fixture = selectionFixture();
+  const { remote, profile, bodies, review, publish } = fixture;
+  let plan = await review();
+  assert.deepEqual(plan.rows.map(row => row.status), ["New", "New", "New"]);
+  assert.equal(remote.stats.creates, 0);
+  assert.equal(await publish(plan, ["Docs/Two.md"]), 1);
+  assert.equal(Object.keys(profile.pages).length, 1);
+  assert.equal(Object.keys(profile.folders).length, 0);
+  const two = profile.pages["file:Docs/Two.md"].id;
+  bodies.set("Docs/One.md", "# One\n[[Two]]");
+  plan = await review();
+  assert.equal(plan.rows.find(row => row.path === "Docs/Two.md").status, "Unchanged");
+  assert.equal(await publish(plan, ["Docs/One.md"]), 1);
+  assert.match(remote.records.get(profile.pages["file:Docs/One.md"].id).body.storage.value, new RegExp("pageId=" + two));
+  assert.equal(remote.records.get(two).version.number, 2);
+  assert.equal(Object.keys(profile.folders).length, 0);
+  assert.ok(!profile.pages["file:Docs/Nested/Three.md"]);
+});
+
+test("selective publication blocks stale input, unselected new link dependencies and destination changes before writes", async () => {
+  const { app, config, remote, profile, bodies, review, publish } = selectionFixture();
+  bodies.set("Docs/One.md", "[[Two]]");
+  const plan = await review();
+  await assert.rejects(publish(plan, ["Docs/One.md"]), /unpublished/);
+  assert.equal(remote.stats.creates, 0);
+  bodies.set("Docs/One.md", "changed after review");
+  await assert.rejects(publish(plan, ["Docs/One.md", "Docs/Two.md"]), /changed/);
+  assert.equal(remote.stats.creates, 0);
+  config.folderId = "200";
+  await assert.rejects(lib.publishSelection(app, remote, profile, async () => {}, plan, ["Docs/Two.md"]), /destination/);
+  assert.equal(remote.stats.creates, 0);
+});
+
+test("one conflicting page cannot block an unrelated selected change and remote edits after review stop selected publication", async () => {
+  const { remote, profile, bodies, review, publish } = selectionFixture();
+  await publish(await review(), ["Docs/One.md", "Docs/Two.md"]);
+  const one = profile.pages["file:Docs/One.md"].id;
+  const two = profile.pages["file:Docs/Two.md"].id;
+  remote.records.get(one).version.number++;
+  bodies.set("Docs/Two.md", "updated Two");
+  const plan = await review();
+  assert.equal(plan.rows.find(row => row.id === one).status, "Conflict");
+  assert.equal(await publish(plan, ["Docs/Two.md"]), 1);
+  bodies.set("Docs/Two.md", "another update");
+  const stale = await review();
+  const updates = remote.stats.updates;
+  remote.records.get(two).version.number++;
+  await assert.rejects(publish(stale, ["Docs/Two.md"]), /changed/);
+  assert.equal(remote.stats.updates, updates);
+});

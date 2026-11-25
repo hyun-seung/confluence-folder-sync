@@ -57,7 +57,7 @@ async function preparedNotes(app, config) {
         const data = await app.vault.readBinary(target.file);
         const hash = await digest(data);
         const safeName = target.file.name.replace(/[^a-zA-Z0-9_.-]/g, "_").slice(-100);
-        asset = { data, hash, name: "cfs-" + hash.slice(0, 24) + "-" + safeName };
+        asset = { data, hash, file: target.file, name: "cfs-" + hash.slice(0, 24) + "-" + safeName };
         binaries.set(target.file.path, asset);
       }
       assets.set(target.file.path, asset);
@@ -66,7 +66,9 @@ async function preparedNotes(app, config) {
     const assetHashes = Array.from(assets, ([path, asset]) => [path, asset.hash])
       .sort(([left], [right]) => left.localeCompare(right));
     const inputHash = await digest(JSON.stringify([sourceHash, assetHashes]));
-    notes.push({ file, title, units, assets, sourceHash, inputHash });
+    const dependencies = references.map(reference => vaultReference(reference, file, app, config.source))
+      .filter(target => target?.file.extension?.toLowerCase() === "md").map(target => target.file.path);
+    notes.push({ file, path: file.path, title, units, assets, sourceHash, inputHash, dependencies });
   }
   return { notes, folders: Array.from(folders).sort((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b)) };
 }
@@ -198,21 +200,26 @@ class Publisher {
     return entry;
   }
 
-  async publish(tree, catalog) {
+  async publish(tree, catalog, control = {}) {
     const folders = new Map([[this.client.config.source, this.client.config.folderId]]);
-    const ids = new Map();
+    const ids = new Map(Object.entries(this.profile.pages)
+      .filter(([key, entry]) => key.startsWith("file:") && entry.id && catalog.has(entry.id))
+      .map(([key, entry]) => [key.slice(5), entry.id]));
     for (const path of tree.folders) {
+      await control.check?.();
       const entry = await this.claim("folder", this.profile.folders, "dir:" + path,
         normalized(path.split("/").at(-1)), folders.get(parentPath(path)), catalog);
       folders.set(path, entry.id);
     }
     for (const note of tree.notes) {
+      await control.check?.(note);
       const entry = await this.claim("page", this.profile.pages, "file:" + note.file.path, note.title,
         folders.get(parentPath(note.file.path)), catalog);
       ids.set(note.file.path, entry.id);
     }
     let changed = 0;
     for (const note of tree.notes) {
+      await control.check?.(note);
       const entry = this.profile.pages["file:" + note.file.path];
       const page = await this.client.page(entry.id);
       confirmParent("page", page, entry, folders.get(parentPath(note.file.path)), note.title, this.client.spaceId);
@@ -230,6 +237,7 @@ class Publisher {
       if (bodyHash === entry.bodyHash) {
         if (entry.sourceHash !== note.sourceHash) {
           entry.sourceHash = note.sourceHash;
+          entry.inputHash = note.inputHash;
           await this.save();
         }
         continue;
@@ -266,6 +274,7 @@ class Publisher {
       entry.version = result.version.number;
       entry.bodyHash = bodyHash;
       entry.sourceHash = note.sourceHash;
+      entry.inputHash = note.inputHash;
       delete entry.pending;
       delete entry.migratedInputHash;
       await this.save();

@@ -33,7 +33,7 @@ class SyncDashboard extends Modal {
     new Setting(contentEl).setName(t("Check and sync"))
       .addButton(button("Preview changes", command("preview")))
       .addButton(button("Import new pages", command("import")))
-      .addButton(button("Publish folder", command("publish"), !this.plugin.data.settings.allowPublish));
+      .addButton(button("Review publication", command("publish")));
     new Setting(contentEl).setName(t("Download the full folder"))
       .setDesc(t("Save every current page as a new snapshot under the import folder."))
       .addButton(button("Download snapshot", () => this.saveSnapshot()));

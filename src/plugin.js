@@ -142,6 +142,13 @@ class ConfluenceFolderSync extends Plugin {
     }
   }
 
+  preparePublication() {
+    return this.withConnection(async ({ client, profile }) => {
+      const tree = await preparedNotes(this.app, client.config);
+      return publicationReview(this.app, client, profile, tree, await client.catalog());
+    });
+  }
+
   async run(action) {
     const progress = new Notice(this.t("Connecting to Confluence…"), 0);
     try {
@@ -149,9 +156,6 @@ class ConfluenceFolderSync extends Plugin {
         if (action === "connect") {
           new Notice(this.t("Connected to Confluence folder {title} ({id}).", { title: folder.title, id: config.folderId }));
           return;
-        }
-        if (action === "publish" && !config.allowPublish) {
-          throw new Error("Enable publishing in the plugin settings first.");
         }
         const catalog = await client.catalog();
         if (action !== "publish") {
@@ -161,23 +165,8 @@ class ConfluenceFolderSync extends Plugin {
           return;
         }
         const tree = await preparedNotes(this.app, config);
-        if (!tree.notes.length) throw new Error("The selected folder contains no Markdown notes.");
-        const publisher = new Publisher(client, this.app, profile, save);
-        await publisher.plan(tree, catalog);
-        progress.hide();
-        const approved = await this.confirm(this.t("Publish to Confluence"),
-          this.t("Publish {count} notes from {source} to {host} / {folder} (folder {id}).",
-            { count: tree.notes.length, source: config.source, host: new URL(config.origin).hostname,
-              folder: folder.title, id: config.folderId }), this.t("Publish"));
-        if (!approved) return;
-        const status = new Notice(this.t("Publishing to Confluence…"), 0);
-        try {
-          const updated = await publisher.publish(tree, catalog);
-          new Notice(this.t("Confluence: {updated} updated, {unchanged} unchanged.",
-            { updated, unchanged: tree.notes.length - updated }));
-        } finally {
-          status.hide();
-        }
+        const review = await publicationReview(this.app, client, profile, tree, catalog);
+        new PublicationModal(this, review).open();
       });
     } catch (error) {
       const message = localizedError(error, this.language);

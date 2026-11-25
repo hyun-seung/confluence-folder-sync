@@ -2,6 +2,20 @@
   flex-wrap: wrap;
 }
 
+.cfs-publication .setting-item-control {
+  flex-wrap: wrap;
+}
+
+.cfs-publication-rows {
+  max-height: 48vh;
+  overflow-y: auto;
+}
+
+.cfs-publication .setting-item-name,
+.cfs-publication .setting-item-description {
+  overflow-wrap: anywhere;
+}
+
 .cfs-dashboard .cfs-diff {
   background-color: var(--code-background);
   border: 1px solid var(--background-modifier-border);
