@@ -126,6 +126,7 @@ class PublicationModal extends Modal {
 
   onClose() {
     this.opened = false;
+    this.cancelled = true;
     this.contentEl.empty();
   }
 
@@ -148,6 +149,8 @@ class PublicationModal extends Modal {
     controls.addButton(button => button.setButtonText(t("Clear selection")).setDisabled(this.busy)
       .onClick(() => { this.selection.clear(); this.render(); }));
     controls.addButton(button => button.setButtonText(t("Refresh review")).setDisabled(this.busy).onClick(() => this.refresh()));
+    if (this.busy) controls.addButton(button => button.setButtonText(t("Cancel"))
+      .onClick(() => { this.cancelled = true; this.status = t("Cancelling after the current request…"); this.render(); }));
     new Setting(contentEl).setName(t("Filter notes")).addText(input => input.setValue(this.filter ?? "")
       .setPlaceholder(t("Title or folder")).setDisabled(this.busy).onChange(value => {
         this.filter = value;
@@ -199,14 +202,31 @@ class PublicationModal extends Modal {
   async publish() {
     if (this.busy || !this.opened) return;
     this.busy = true;
+    this.cancelled = false;
     const paths = Array.from(this.selection);
     this.render();
     try {
       if (!await this.plugin.confirm(this.t("Publish selected"),
         this.t("Publish {count} selected notes to {destination}?", { count: paths.length, destination: this.review.destination }),
         this.t("Publish")) || !this.opened) return;
-      const updated = await this.plugin.withConnection(({ client, profile, save }) =>
-        publishSelection(this.app, client, profile, save, this.review, paths));
+      const updated = await this.plugin.operation("Publish selected", ({ client, profile, save }) =>
+        publishSelection(this.app, client, profile, save, this.review, paths, {
+          check: () => {
+            if (this.cancelled) {
+              const error = new Error("The operation was cancelled. Completed changes are preserved.");
+              error.name = "AbortError";
+              throw error;
+            }
+            if (!this.plugin.data.settings.allowPublish) throw new Error("Enable publishing in the plugin settings first.");
+            if (publicationTarget(validatedConfig(this.plugin.data.settings)) !== this.review.target) {
+              throw new Error("The publication destination changed. Refresh the review.");
+            }
+          },
+          progress: (done, total, path) => {
+            this.status = this.t("Publishing {done}/{total}: {path}", { done, total, path });
+            if (this.opened) this.render();
+          },
+        }));
       this.status = this.t("Published {count} selected notes.", { count: updated });
       this.review = await this.plugin.preparePublication();
       this.selection.clear();

@@ -39,6 +39,8 @@ class SyncDashboard extends Modal {
       .addButton(button("Download snapshot", () => this.saveSnapshot()));
     new Setting(contentEl).setName(t("Page versions"))
       .addButton(button("Load pages", () => this.loadPages()));
+    new Setting(contentEl).setName(t("Activity and backups"))
+      .addButton(button("Open history", () => { this.close(); new HistoryModal(this.plugin).open(); }));
 
     if (!this.pages.length) return;
     const selectPage = new Setting(contentEl).setName(t("Confluence page"));
@@ -144,7 +146,7 @@ class SyncDashboard extends Modal {
     this.status = this.t(message);
     this.render();
     try {
-      await this.plugin.withConnection(task);
+      await this.plugin.operation(message, task);
     } catch (error) {
       this.status = localizedError(error, this.plugin.language);
     } finally {
@@ -242,7 +244,8 @@ class SyncDashboard extends Modal {
         this.status = this.t("Application cancelled.");
         return;
       }
-      const result = await applyLocalReview(this.app, client, profile, page, review, selection);
+      const result = await applyLocalReview(this.app, client, profile, page, review, selection,
+        receipt => this.plugin.recordBackup(receipt));
       this.review = null;
       this.selection = new Set();
       this.backup = result.backup;

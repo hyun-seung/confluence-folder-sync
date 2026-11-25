@@ -7,7 +7,7 @@ const fromBundle = new Function("require", "module",
   "ConfluenceCloud, Publisher, preparedNotes, pageTrails, digest, lineChange, fromStorage, " +
   "attachmentInventory, attachmentDiff, reviewHunks, matchHunk, mergeSelected, applyLocalReview, " +
   "KOREAN, syncLanguage, translate, localizedError, SyncError, ApiError, publicationReview, publishSelection, " +
-  "resolveConflict, publicationTarget, rekeySource };");
+  "resolveConflict, publicationTarget, rekeySource, saveNoteBackup, restoreNoteBackup };");
 const fakeModule = { exports: {} };
 const lib = fromBundle(() => ({ Plugin: class {}, PluginSettingTab: class {}, Modal: class {} }), fakeModule);
 const fixtureConfig = {
@@ -484,4 +484,40 @@ test("rename mapping collisions are atomic and moves outside the source cannot p
   lib.rekeySource(profile, "Docs/One.md", "Other/One.md");
   assert.equal(profile.pages["file:Other/One.md"].id, "1");
   assert.ok(!profile.pages["file:Docs/One.md"]);
+});
+
+test("backup restoration preserves the current revision and refuses modified notes and altered backups", async () => {
+  const { app, config, bodies } = selectionFixture();
+  const path = "Docs/One.md";
+  app.workspace = { getLeavesOfType: () => [] };
+  app.vault.create = async (path, text) => { assert.ok(!bodies.has(path)); bodies.set(path, text); return { path }; };
+  app.vault.process = async (file, fn) => bodies.set(file.path, fn(bodies.get(file.path)));
+  app.vault.getFileByPath = path => bodies.has(path) ? { path, extension: "md" } : null;
+  const receipts = [];
+  const receipt = await lib.saveNoteBackup(app, config, path, "before", "after", async item => receipts.push(item));
+  bodies.set(path, "newer user edit");
+  await assert.rejects(lib.restoreNoteBackup(app, config, receipt, async item => receipts.push(item)), /note changed/);
+  assert.equal(bodies.get(path), "newer user edit");
+  bodies.set(path, "after"); bodies.set(receipt.backup, "altered backup");
+  await assert.rejects(lib.restoreNoteBackup(app, config, receipt), /backup contents changed/);
+  bodies.set(receipt.backup, "before");
+  const recovery = await lib.restoreNoteBackup(app, config, receipt, async item => receipts.push(item));
+  assert.equal(bodies.get(path), "before");
+  assert.equal(bodies.get(recovery.backup), "after");
+  assert.equal(receipts.length, 2);
+});
+
+test("operation history records success, failure and cancellation and stays bounded", async () => {
+  const plugin = Object.create(fakeModule.exports.prototype);
+  plugin.data = { settings: { language: "en" }, history: Array.from({ length: 100 }, (_, i) => ({ id: String(i) })) };
+  plugin.persist = async () => {};
+  assert.equal(await plugin.recordOperation("Publish selected", async () => 3), 3);
+  assert.equal(plugin.data.history.length, 100);
+  assert.equal(plugin.data.history.at(-1).status, "Succeeded");
+  assert.equal(plugin.data.history.at(-1).count, 3);
+  await assert.rejects(plugin.recordOperation("Publish selected", async () => { throw new Error("fixture failure"); }), /fixture failure/);
+  assert.equal(plugin.data.history.at(-1).status, "Failed");
+  const cancellation = new Error("cancelled"); cancellation.name = "AbortError";
+  await assert.rejects(plugin.recordOperation("Publish selected", async () => { throw cancellation; }), /cancelled/);
+  assert.equal(plugin.data.history.at(-1).status, "Cancelled");
 });

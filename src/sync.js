@@ -230,7 +230,8 @@ class Publisher {
       ids.set(note.file.path, entry.id);
     }
     let changed = 0;
-    for (const note of tree.notes) {
+    for (const [index, note] of tree.notes.entries()) {
+      await control.progress?.(index, tree.notes.length, note.path);
       await control.check?.(note);
       const entry = this.profile.pages["file:" + note.file.path];
       const page = await this.client.page(entry.id);
@@ -308,6 +309,7 @@ class Publisher {
       await this.save();
       changed++;
     }
+    await control.progress?.(tree.notes.length, tree.notes.length, "");
     return changed;
   }
 }

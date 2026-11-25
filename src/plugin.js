@@ -72,7 +72,8 @@ class SyncSettings extends PluginSettingTab {
 class ConfluenceFolderSync extends Plugin {
   async onload() {
     const stored = await this.loadData() ?? {};
-    this.data = { settings: { ...DEFAULT_SETTINGS, ...stored.settings }, profiles: stored.profiles ?? {} };
+    this.data = { settings: { ...DEFAULT_SETTINGS, ...stored.settings }, profiles: stored.profiles ?? {},
+      history: Array.isArray(stored.history) ? stored.history : [], backups: Array.isArray(stored.backups) ? stored.backups : [] };
     this.saving = Promise.resolve();
     this.renameEvents = [];
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
@@ -85,6 +86,7 @@ class ConfluenceFolderSync extends Plugin {
     this.ribbon = this.addRibbonIcon("arrow-right-left", this.t("Open Confluence sync dashboard"), openDashboard);
     this.commandDefinitions = [
       { id: "dashboard", name: "Open sync dashboard", callback: openDashboard },
+      { id: "history", name: "Activity and backups", callback: () => new HistoryModal(this).open() },
       { id: "publish", name: "Publish vault folder to Confluence", callback: () => this.run("publish") },
       { id: "preview", name: "Preview Confluence changes", callback: () => this.run("preview") },
       { id: "import", name: "Import new Confluence pages", callback: () => this.run("import") },
@@ -150,25 +152,61 @@ class ConfluenceFolderSync extends Plugin {
     return new Promise(resolve => new Confirmation(this.app, title, summary, button, this.t("Cancel"), resolve).open());
   }
 
-  async withConnection(task) {
+  async exclusive(task) {
     if (this.running) throw new Error("A Confluence command is already running in this vault.");
     await this.applyRenames();
     if (this.running) throw new Error("A Confluence command is already running in this vault.");
     this.running = true;
     try {
-      await this.saving;
+      await this.saving.catch(() => this.persist());
+      return await task();
+    } finally {
+      this.running = false;
+      await this.applyRenames();
+    }
+  }
+
+  withConnection(task) {
+    return this.exclusive(async () => {
       const config = validatedConfig({ ...this.data.settings, language: this.language });
       const token = this.app.secretStorage.getSecret(config.secretId);
       if (!token) throw new Error("Choose a valid token in the plugin settings.");
       const client = new ConfluenceCloud(config, token);
       const folder = await client.connect();
-      const key = JSON.stringify([config.origin, config.folderId, config.source]);
+      const key = publicationTarget(config);
       const profile = this.data.profiles[key] ??= { folders: {}, pages: {}, imports: {} };
-      return await task({ client, folder, config, profile, save: () => this.persist() });
+      return task({ client, folder, config, profile, save: () => this.persist() });
+    });
+  }
+
+  async recordOperation(action, task) {
+    const item = { id: crypto.randomUUID(), time: new Date().toISOString(), action, status: "Running" };
+    this.data.history.push(item);
+    this.data.history = this.data.history.slice(-100);
+    await this.persist();
+    try {
+      const result = await task();
+      item.status = "Succeeded";
+      if (typeof result === "number") item.count = result;
+      return result;
+    } catch (error) {
+      item.status = error?.name === "AbortError" ? "Cancelled" : "Failed";
+      item.error = localizedError(error, this.language).slice(0, 600);
+      throw error;
     } finally {
-      this.running = false;
-      await this.applyRenames();
+      item.finished = new Date().toISOString();
+      await this.persist();
     }
+  }
+
+  operation(action, task) {
+    return this.withConnection(context => this.recordOperation(action, () => task(context)));
+  }
+
+  async recordBackup(receipt) {
+    this.data.backups.push(receipt);
+    this.data.backups = this.data.backups.slice(-100);
+    await this.persist();
   }
 
   preparePublication() {
@@ -181,7 +219,8 @@ class ConfluenceFolderSync extends Plugin {
   async run(action) {
     const progress = new Notice(this.t("Connecting to Confluence…"), 0);
     try {
-      await this.withConnection(async ({ client, folder, config, profile, save }) => {
+      await this.operation(action === "publish" ? "Review publication" : action === "preview" ? "Preview changes" :
+        action === "import" ? "Import new pages" : "Test connection", async ({ client, folder, config, profile, save }) => {
         if (action === "connect") {
           new Notice(this.t("Connected to Confluence folder {title} ({id}).", { title: folder.title, id: config.folderId }));
           return;

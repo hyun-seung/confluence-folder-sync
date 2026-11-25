@@ -19,7 +19,7 @@ async function prepareConflict(app, client, profile, page) {
     target: publicationTarget(client.config) };
 }
 
-async function resolveConflict(app, client, profile, save, review, text) {
+async function resolveConflict(app, client, profile, save, review, text, recordBackup) {
   if (review.target !== publicationTarget(client.config) || typeof text !== "string") {
     throw new Error("The Confluence page or destination changed. Review the latest version again.");
   }
@@ -41,10 +41,7 @@ async function resolveConflict(app, client, profile, save, review, text) {
     }
   };
   await checkRemote();
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-") + " " + crypto.randomUUID().slice(0, 8);
-  const backup = client.config.inbox + "/Backups/" + stamp + "/" + path.slice(client.config.source.length + 1);
-  await makeVaultFolders(app.vault, parentPath(backup), client.config.inbox);
-  await app.vault.create(backup, review.original);
+  const { backup } = await saveNoteBackup(app, client.config, path, review.original, text, recordBackup);
   await checkRemote();
   await app.vault.process(file, current => {
     if (current !== review.original || file.path !== path || !editorMatches(app, path, current)) {
@@ -132,8 +129,8 @@ class ConflictModal extends Modal {
       if (!await this.plugin.confirm(this.t("Save resolution locally"),
         this.t("Back up {path}, save the reviewed text, and accept Confluence v{version} as the new baseline?",
           { path: this.review.path, version: this.review.version }), this.t("Apply changes")) || !this.opened) return;
-      const result = await this.plugin.withConnection(({ client, profile, save }) =>
-        resolveConflict(this.app, client, profile, save, this.review, this.text));
+      const result = await this.plugin.operation("Resolve text conflict", ({ client, profile, save }) =>
+        resolveConflict(this.app, client, profile, save, this.review, this.text, receipt => this.plugin.recordBackup(receipt)));
       this.status = this.t("Resolution saved. Review publication to upload your chosen text.");
       this.close();
       new Notice(this.status);

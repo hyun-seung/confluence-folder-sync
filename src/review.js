@@ -116,7 +116,7 @@ function editorMatches(app, path, original) {
       view.editor.getValue().replace(/\r\n/g, "\n") === original.replace(/\r\n/g, "\n"));
 }
 
-async function applyLocalReview(app, client, profile, page, review, selection) {
+async function applyLocalReview(app, client, profile, page, review, selection, recordBackup) {
   if (client.config.origin !== review.origin || client.config.folderId !== review.folderId ||
       String(page.id) !== review.id || page.version.number !== review.version) {
     throw new Error("The Confluence page or destination changed. Review the latest version again.");
@@ -137,10 +137,7 @@ async function applyLocalReview(app, client, profile, page, review, selection) {
     throw new Error("The local note changed after review. Review it again.");
   }
 
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-") + " " + crypto.randomUUID().slice(0, 8);
-  const backup = client.config.inbox + "/Backups/" + stamp + "/" + path.slice(client.config.source.length + 1);
-  await makeVaultFolders(app.vault, parentPath(backup), client.config.inbox);
-  await app.vault.create(backup, review.original);
+  const { backup } = await saveNoteBackup(app, client.config, path, review.original, changed, recordBackup);
 
   // Recheck after creating the backup and let Vault.process guard against a newer local edit.
   const latest = await client.page(review.id);

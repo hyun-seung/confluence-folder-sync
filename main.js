@@ -2,6 +2,28 @@
 
 // English messages are stable translation keys. Interpolate values only after lookup.
 const KOREAN = {
+  "The linked note is outside the configured source folder.": "연결된 노트가 설정한 발행 폴더 밖에 있습니다.",
+  "This backup belongs to another source or destination.": "이 백업은 다른 발행 범위나 대상에 속합니다.",
+  "The note or backup is unavailable.": "원본 노트나 백업을 찾을 수 없습니다.",
+  "The backup contents changed. Open it for manual review.": "백업 내용이 변경되었습니다. 직접 열어 검토하세요.",
+  "The note changed after this backup. Open the backup and review it manually.": "백업 이후 노트가 변경되었습니다. 백업을 열어 직접 검토하세요.",
+  "Activity and backups": "작업 이력 및 백업",
+  "Recent operations": "최근 작업",
+  "Running": "실행 중",
+  "Succeeded": "완료",
+  "Failed": "실패",
+  "Cancelled": "취소됨",
+  "Interrupted": "중단됨",
+  "No recorded operations yet.": "기록된 작업이 없습니다.",
+  "Local note backups": "로컬 노트 백업",
+  "Restore backup": "백업 복원",
+  "Restore {path}? The current note will be backed up first.": "{path}를 복원할까요? 먼저 현재 노트를 백업합니다.",
+  "Backup restored locally.": "로컬 노트를 백업으로 복원했습니다.",
+  "No recorded backups yet.": "기록된 백업이 없습니다.",
+  "Open history": "작업 이력 열기",
+  "Cancelling after the current request…": "현재 요청이 끝난 뒤 취소하는 중…",
+  "The operation was cancelled. Completed changes are preserved.": "작업이 취소되었습니다. 이미 완료한 변경은 유지됩니다.",
+  "Publishing {done}/{total}: {path}": "발행 중 {done}/{total} — {path}",
   "A moved note already has another page mapping. Resolve its link first.": "이동한 노트 경로에 다른 페이지 연결이 있습니다. 연결을 먼저 확인하세요.",
   "Linked page moved from {path}": "기존 페이지 연결을 유지한 이동 — {path}",
   "Resolve text conflict": "본문 충돌 해결",
@@ -1113,7 +1135,8 @@ class Publisher {
       ids.set(note.file.path, entry.id);
     }
     let changed = 0;
-    for (const note of tree.notes) {
+    for (const [index, note] of tree.notes.entries()) {
+      await control.progress?.(index, tree.notes.length, note.path);
       await control.check?.(note);
       const entry = this.profile.pages["file:" + note.file.path];
       const page = await this.client.page(entry.id);
@@ -1191,6 +1214,7 @@ class Publisher {
       await this.save();
       changed++;
     }
+    await control.progress?.(tree.notes.length, tree.notes.length, "");
     return changed;
   }
 }
@@ -1560,7 +1584,7 @@ function editorMatches(app, path, original) {
       view.editor.getValue().replace(/\r\n/g, "\n") === original.replace(/\r\n/g, "\n"));
 }
 
-async function applyLocalReview(app, client, profile, page, review, selection) {
+async function applyLocalReview(app, client, profile, page, review, selection, recordBackup) {
   if (client.config.origin !== review.origin || client.config.folderId !== review.folderId ||
       String(page.id) !== review.id || page.version.number !== review.version) {
     throw new Error("The Confluence page or destination changed. Review the latest version again.");
@@ -1581,10 +1605,7 @@ async function applyLocalReview(app, client, profile, page, review, selection) {
     throw new Error("The local note changed after review. Review it again.");
   }
 
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-") + " " + crypto.randomUUID().slice(0, 8);
-  const backup = client.config.inbox + "/Backups/" + stamp + "/" + path.slice(client.config.source.length + 1);
-  await makeVaultFolders(app.vault, parentPath(backup), client.config.inbox);
-  await app.vault.create(backup, review.original);
+  const { backup } = await saveNoteBackup(app, client.config, path, review.original, changed, recordBackup);
 
   // Recheck after creating the backup and let Vault.process guard against a newer local edit.
   const latest = await client.page(review.id);
@@ -1730,6 +1751,7 @@ class PublicationModal extends Modal {
 
   onClose() {
     this.opened = false;
+    this.cancelled = true;
     this.contentEl.empty();
   }
 
@@ -1752,6 +1774,8 @@ class PublicationModal extends Modal {
     controls.addButton(button => button.setButtonText(t("Clear selection")).setDisabled(this.busy)
       .onClick(() => { this.selection.clear(); this.render(); }));
     controls.addButton(button => button.setButtonText(t("Refresh review")).setDisabled(this.busy).onClick(() => this.refresh()));
+    if (this.busy) controls.addButton(button => button.setButtonText(t("Cancel"))
+      .onClick(() => { this.cancelled = true; this.status = t("Cancelling after the current request…"); this.render(); }));
     new Setting(contentEl).setName(t("Filter notes")).addText(input => input.setValue(this.filter ?? "")
       .setPlaceholder(t("Title or folder")).setDisabled(this.busy).onChange(value => {
         this.filter = value;
@@ -1803,14 +1827,31 @@ class PublicationModal extends Modal {
   async publish() {
     if (this.busy || !this.opened) return;
     this.busy = true;
+    this.cancelled = false;
     const paths = Array.from(this.selection);
     this.render();
     try {
       if (!await this.plugin.confirm(this.t("Publish selected"),
         this.t("Publish {count} selected notes to {destination}?", { count: paths.length, destination: this.review.destination }),
         this.t("Publish")) || !this.opened) return;
-      const updated = await this.plugin.withConnection(({ client, profile, save }) =>
-        publishSelection(this.app, client, profile, save, this.review, paths));
+      const updated = await this.plugin.operation("Publish selected", ({ client, profile, save }) =>
+        publishSelection(this.app, client, profile, save, this.review, paths, {
+          check: () => {
+            if (this.cancelled) {
+              const error = new Error("The operation was cancelled. Completed changes are preserved.");
+              error.name = "AbortError";
+              throw error;
+            }
+            if (!this.plugin.data.settings.allowPublish) throw new Error("Enable publishing in the plugin settings first.");
+            if (publicationTarget(validatedConfig(this.plugin.data.settings)) !== this.review.target) {
+              throw new Error("The publication destination changed. Refresh the review.");
+            }
+          },
+          progress: (done, total, path) => {
+            this.status = this.t("Publishing {done}/{total}: {path}", { done, total, path });
+            if (this.opened) this.render();
+          },
+        }));
       this.status = this.t("Published {count} selected notes.", { count: updated });
       this.review = await this.plugin.preparePublication();
       this.selection.clear();
@@ -1844,7 +1885,7 @@ async function prepareConflict(app, client, profile, page) {
     target: publicationTarget(client.config) };
 }
 
-async function resolveConflict(app, client, profile, save, review, text) {
+async function resolveConflict(app, client, profile, save, review, text, recordBackup) {
   if (review.target !== publicationTarget(client.config) || typeof text !== "string") {
     throw new Error("The Confluence page or destination changed. Review the latest version again.");
   }
@@ -1866,10 +1907,7 @@ async function resolveConflict(app, client, profile, save, review, text) {
     }
   };
   await checkRemote();
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-") + " " + crypto.randomUUID().slice(0, 8);
-  const backup = client.config.inbox + "/Backups/" + stamp + "/" + path.slice(client.config.source.length + 1);
-  await makeVaultFolders(app.vault, parentPath(backup), client.config.inbox);
-  await app.vault.create(backup, review.original);
+  const { backup } = await saveNoteBackup(app, client.config, path, review.original, text, recordBackup);
   await checkRemote();
   await app.vault.process(file, current => {
     if (current !== review.original || file.path !== path || !editorMatches(app, path, current)) {
@@ -1957,8 +1995,8 @@ class ConflictModal extends Modal {
       if (!await this.plugin.confirm(this.t("Save resolution locally"),
         this.t("Back up {path}, save the reviewed text, and accept Confluence v{version} as the new baseline?",
           { path: this.review.path, version: this.review.version }), this.t("Apply changes")) || !this.opened) return;
-      const result = await this.plugin.withConnection(({ client, profile, save }) =>
-        resolveConflict(this.app, client, profile, save, this.review, this.text));
+      const result = await this.plugin.operation("Resolve text conflict", ({ client, profile, save }) =>
+        resolveConflict(this.app, client, profile, save, this.review, this.text, receipt => this.plugin.recordBackup(receipt)));
       this.status = this.t("Resolution saved. Review publication to upload your chosen text.");
       this.close();
       new Notice(this.status);
@@ -1994,6 +2032,107 @@ function rekeySource(profile, oldPath, newPath) {
     if (key.startsWith("dir:") && pathIn(key.slice(4), oldPath)) delete profile.folders[key];
   }
   return moves.length;
+}
+
+async function saveNoteBackup(app, config, path, original, after, record = async () => {}) {
+  if (!path.startsWith(config.source + "/") || vaultPath(path) !== path) {
+    throw new Error("The linked note is outside the configured source folder.");
+  }
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-") + " " + crypto.randomUUID().slice(0, 8);
+  const backup = config.inbox + "/Backups/" + stamp + "/" + path.slice(config.source.length + 1);
+  await makeVaultFolders(app.vault, parentPath(backup), config.inbox);
+  await app.vault.create(backup, original);
+  const receipt = { id: crypto.randomUUID(), time: new Date().toISOString(), path, backup,
+    backupHash: await digest(original), afterHash: await digest(after), target: publicationTarget(config) };
+  await record(receipt);
+  return receipt;
+}
+
+async function restoreNoteBackup(app, config, receipt, record) {
+  if (receipt.target !== publicationTarget(config) || vaultPath(receipt.path) !== receipt.path ||
+      !receipt.path.startsWith(config.source + "/") || vaultPath(receipt.backup) !== receipt.backup ||
+      !receipt.backup.startsWith(config.inbox + "/Backups/")) {
+    throw new Error("This backup belongs to another source or destination.");
+  }
+  const file = app.vault.getFileByPath(receipt.path);
+  const backup = app.vault.getFileByPath(receipt.backup);
+  if (!file || !backup || file.extension !== "md") throw new Error("The note or backup is unavailable.");
+  const original = await app.vault.read(file);
+  const text = await app.vault.read(backup);
+  if (await digest(text) !== receipt.backupHash) throw new Error("The backup contents changed. Open it for manual review.");
+  if (await digest(original) !== receipt.afterHash || !editorMatches(app, file.path, original)) {
+    throw new Error("The note changed after this backup. Open the backup and review it manually.");
+  }
+  const recovery = await saveNoteBackup(app, config, file.path, original, text, record);
+  await app.vault.process(file, current => {
+    if (file.path !== receipt.path || current !== original || !editorMatches(app, receipt.path, current)) {
+      throw new Error("The local note changed while applying the selection. No local change was applied.");
+    }
+    return text;
+  });
+  return recovery;
+}
+
+class HistoryModal extends Modal {
+  constructor(plugin) {
+    super(plugin.app);
+    this.plugin = plugin;
+    this.t = (message, values) => plugin.t(message, values);
+  }
+
+  onOpen() {
+    this.contentEl.addClass("cfs-history");
+    this.render();
+  }
+
+  render() {
+    const { contentEl, plugin, t } = this;
+    contentEl.empty();
+    contentEl.createEl("h2", { text: t("Activity and backups") });
+    if (this.status) contentEl.createEl("p", { text: this.status, attr: { role: "status" } });
+    contentEl.createEl("h3", { text: t("Recent operations") });
+    for (const item of plugin.data.history.slice().reverse().slice(0, 30)) {
+      const result = item.status === "Running" && !plugin.running ? "Interrupted" : item.status;
+      new Setting(contentEl).setName(t(item.action) + " · " + t(result))
+        .setDesc(item.time + (item.error ? " · " + item.error : item.count !== undefined ? " · " + item.count : ""));
+    }
+    if (!plugin.data.history.length) contentEl.createEl("p", { text: t("No recorded operations yet.") });
+    contentEl.createEl("h3", { text: t("Local note backups") });
+    for (const receipt of plugin.data.backups.slice().reverse().slice(0, 30)) {
+      new Setting(contentEl).setName(receipt.path).setDesc(receipt.time)
+        .addButton(button => button.setButtonText(t("Open backup")).onClick(async () => {
+          const file = this.app.vault.getFileByPath(receipt.backup);
+          if (file) await this.app.workspace.getLeaf("tab").openFile(file);
+          this.close();
+        }))
+        .addButton(button => button.setButtonText(t("Restore backup")).setDisabled(this.busy || plugin.running)
+          .onClick(() => this.restore(receipt)));
+    }
+    if (!plugin.data.backups.length) contentEl.createEl("p", { text: t("No recorded backups yet.") });
+  }
+
+  async restore(receipt) {
+    this.busy = true;
+    this.render();
+    try {
+      if (!await this.plugin.confirm(this.t("Restore backup"),
+        this.t("Restore {path}? The current note will be backed up first.", { path: receipt.path }),
+        this.t("Restore backup"))) return;
+      await this.plugin.exclusive(() => this.plugin.recordOperation("Restore backup", () =>
+        restoreNoteBackup(this.app, validatedConfig(this.plugin.data.settings), receipt,
+          item => this.plugin.recordBackup(item))));
+      this.status = this.t("Backup restored locally.");
+    } catch (error) {
+      this.status = localizedError(error, this.plugin.language);
+    } finally {
+      this.busy = false;
+      this.render();
+    }
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
 }
 
 class SyncDashboard extends Modal {
@@ -2037,6 +2176,8 @@ class SyncDashboard extends Modal {
       .addButton(button("Download snapshot", () => this.saveSnapshot()));
     new Setting(contentEl).setName(t("Page versions"))
       .addButton(button("Load pages", () => this.loadPages()));
+    new Setting(contentEl).setName(t("Activity and backups"))
+      .addButton(button("Open history", () => { this.close(); new HistoryModal(this.plugin).open(); }));
 
     if (!this.pages.length) return;
     const selectPage = new Setting(contentEl).setName(t("Confluence page"));
@@ -2142,7 +2283,7 @@ class SyncDashboard extends Modal {
     this.status = this.t(message);
     this.render();
     try {
-      await this.plugin.withConnection(task);
+      await this.plugin.operation(message, task);
     } catch (error) {
       this.status = localizedError(error, this.plugin.language);
     } finally {
@@ -2240,7 +2381,8 @@ class SyncDashboard extends Modal {
         this.status = this.t("Application cancelled.");
         return;
       }
-      const result = await applyLocalReview(this.app, client, profile, page, review, selection);
+      const result = await applyLocalReview(this.app, client, profile, page, review, selection,
+        receipt => this.plugin.recordBackup(receipt));
       this.review = null;
       this.selection = new Set();
       this.backup = result.backup;
@@ -2348,7 +2490,8 @@ class SyncSettings extends PluginSettingTab {
 class ConfluenceFolderSync extends Plugin {
   async onload() {
     const stored = await this.loadData() ?? {};
-    this.data = { settings: { ...DEFAULT_SETTINGS, ...stored.settings }, profiles: stored.profiles ?? {} };
+    this.data = { settings: { ...DEFAULT_SETTINGS, ...stored.settings }, profiles: stored.profiles ?? {},
+      history: Array.isArray(stored.history) ? stored.history : [], backups: Array.isArray(stored.backups) ? stored.backups : [] };
     this.saving = Promise.resolve();
     this.renameEvents = [];
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
@@ -2361,6 +2504,7 @@ class ConfluenceFolderSync extends Plugin {
     this.ribbon = this.addRibbonIcon("arrow-right-left", this.t("Open Confluence sync dashboard"), openDashboard);
     this.commandDefinitions = [
       { id: "dashboard", name: "Open sync dashboard", callback: openDashboard },
+      { id: "history", name: "Activity and backups", callback: () => new HistoryModal(this).open() },
       { id: "publish", name: "Publish vault folder to Confluence", callback: () => this.run("publish") },
       { id: "preview", name: "Preview Confluence changes", callback: () => this.run("preview") },
       { id: "import", name: "Import new Confluence pages", callback: () => this.run("import") },
@@ -2426,25 +2570,61 @@ class ConfluenceFolderSync extends Plugin {
     return new Promise(resolve => new Confirmation(this.app, title, summary, button, this.t("Cancel"), resolve).open());
   }
 
-  async withConnection(task) {
+  async exclusive(task) {
     if (this.running) throw new Error("A Confluence command is already running in this vault.");
     await this.applyRenames();
     if (this.running) throw new Error("A Confluence command is already running in this vault.");
     this.running = true;
     try {
-      await this.saving;
+      await this.saving.catch(() => this.persist());
+      return await task();
+    } finally {
+      this.running = false;
+      await this.applyRenames();
+    }
+  }
+
+  withConnection(task) {
+    return this.exclusive(async () => {
       const config = validatedConfig({ ...this.data.settings, language: this.language });
       const token = this.app.secretStorage.getSecret(config.secretId);
       if (!token) throw new Error("Choose a valid token in the plugin settings.");
       const client = new ConfluenceCloud(config, token);
       const folder = await client.connect();
-      const key = JSON.stringify([config.origin, config.folderId, config.source]);
+      const key = publicationTarget(config);
       const profile = this.data.profiles[key] ??= { folders: {}, pages: {}, imports: {} };
-      return await task({ client, folder, config, profile, save: () => this.persist() });
+      return task({ client, folder, config, profile, save: () => this.persist() });
+    });
+  }
+
+  async recordOperation(action, task) {
+    const item = { id: crypto.randomUUID(), time: new Date().toISOString(), action, status: "Running" };
+    this.data.history.push(item);
+    this.data.history = this.data.history.slice(-100);
+    await this.persist();
+    try {
+      const result = await task();
+      item.status = "Succeeded";
+      if (typeof result === "number") item.count = result;
+      return result;
+    } catch (error) {
+      item.status = error?.name === "AbortError" ? "Cancelled" : "Failed";
+      item.error = localizedError(error, this.language).slice(0, 600);
+      throw error;
     } finally {
-      this.running = false;
-      await this.applyRenames();
+      item.finished = new Date().toISOString();
+      await this.persist();
     }
+  }
+
+  operation(action, task) {
+    return this.withConnection(context => this.recordOperation(action, () => task(context)));
+  }
+
+  async recordBackup(receipt) {
+    this.data.backups.push(receipt);
+    this.data.backups = this.data.backups.slice(-100);
+    await this.persist();
   }
 
   preparePublication() {
@@ -2457,7 +2637,8 @@ class ConfluenceFolderSync extends Plugin {
   async run(action) {
     const progress = new Notice(this.t("Connecting to Confluence…"), 0);
     try {
-      await this.withConnection(async ({ client, folder, config, profile, save }) => {
+      await this.operation(action === "publish" ? "Review publication" : action === "preview" ? "Preview changes" :
+        action === "import" ? "Import new pages" : "Test connection", async ({ client, folder, config, profile, save }) => {
         if (action === "connect") {
           new Notice(this.t("Connected to Confluence folder {title} ({id}).", { title: folder.title, id: config.folderId }));
           return;
