@@ -6,7 +6,7 @@ This is a pre-release. Source and development history are available on [GitHub](
 
 ## Install the release candidate
 
-1. Download the assets from a [GitHub release](https://github.com/hyun-seung/confluence-folder-sync/releases). Copy `main.js`, `manifest.json`, and `styles.css` to `.obsidian/plugins/confluence-folder-sync/` in a test vault. Enable **Confluence Folder Sync** in Obsidian's Community plugins settings.
+1. Download `main.js`, `manifest.json`, and `styles.css` from the same revision in the [repository root](https://github.com/hyun-seung/confluence-folder-sync), or build them using the instructions below. Copy the three files to `.obsidian/plugins/confluence-folder-sync/` in a test vault. Enable **Confluence Folder Sync** in Obsidian's Community plugins settings.
 2. In the plugin settings, enter your Confluence Cloud **folder URL** and the Atlassian email associated with a scoped API token. Select the token using Obsidian's secret picker. Use Obsidian Desktop 1.14 or later.
 3. Set separate vault-relative source and import folders, then use **Test connection**.
 4. Open the **Confluence sync dashboard** from the arrow icon in the left ribbon or from the command palette. To publish, enable **Enable publish** and verify the displayed destination when confirming.
