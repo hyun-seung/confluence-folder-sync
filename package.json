@@ -1,0 +1,9 @@
+{
+  "name": "confluence-folder-sync",
+  "version": "0.2.0",
+  "private": true,
+  "scripts": {
+    "build": "node build.cjs",
+    "test": "node build.cjs && node --test sync.test.cjs"
+  }
+}
