@@ -15,14 +15,17 @@ Use a new Confluence test folder on first setup. This plugin maintains its own I
 
 | Action | What it does |
 | --- | --- |
-| **Preview changes** | Open a report comparing remote changes with the recorded version and flagging edits on both sides. |
-| **Import new pages** | Save previously unlinked pages as Markdown under `Imported pages`. Use this on the first run to record imported versions for later previews. |
+| **Preview changes** | Compare remote page and attachment versions with the recorded versions. Flag edits on both sides and attachment additions, changes, and removals even when page versions match. |
+| **Import new pages** | Save previously unlinked pages as Markdown with binary attachments under `Imported pages`. Use this on the first run to record imported versions for later previews. |
 | **Download snapshot** | Save every current page in a fresh subfolder under `Snapshots`. Use this for a one-time export or a fresh copy even if pages are already tracked. |
 | **Load pages → Load versions → Compare** | Pick a page and two available Confluence versions. Added and removed Markdown lines appear in the dashboard. |
+| **Review local application** | Compare the linked page's last published version with its current Confluence version. Choose individual text changes with a unique matching location, then confirm local application. |
 | **Download latest copy** | Save the selected page's current version under `Snapshots`, including when a copy already exists. |
 | **Publish folder** | Review the source and destination, then publish eligible changes with conflict protection. |
 
-Snapshots preserve local originals and previous copies and leave the tracked version unchanged. Attachment links remain available in the copied notes.
+Snapshots preserve local originals and previous copies and leave tracked versions unchanged. Downloads save files in an `Attachments` folder with versioned filenames. Previously tracked pages from older plugin versions first record the current attachment inventory when previewed.
+
+Local application saves a backup of the note under `Backups`, checks the remote version again, and applies the selected lines only when the local file and open editor still match the review. Changes with missing or ambiguous context stay disabled. Selective application is available for linked published notes and leaves the last published version in place. If Confluence was edited directly, subsequent publication continues to surface that conflict, so unselected remote edits remain protected.
 
 ## Atlassian account and scopes
 
@@ -36,14 +39,14 @@ The token is retrieved from Obsidian SecretStorage. The plugin stores your setti
 ## Network and vault access
 
 - The selected `*.atlassian.net` site supplies the tenant's Cloud ID. The plugin sends authenticated REST requests to `api.atlassian.com` for the selected tenant.
-- Preview and import read page and attachment metadata and page contents. Publish sends source note content, page and folder names, and referenced in-scope attachments only after local preflight and confirmation.
-- References to online images are emitted as links so the plugin does not fetch them. Imported attachment links open on the selected Confluence site. The plugin has no analytics and accesses the vault through Obsidian APIs.
-- Existing local notes are preserved. Preview displays differences, including when both sides have changed. The author can copy reviewed text into a local note. An independently edited Confluence page continues to block publication until its conflict is resolved. Neither side's files or pages are automatically deleted. For any single Confluence folder, keep one designated publishing installation and let other installations preview or import.
+- Preview and import read page and attachment metadata and page contents. Downloads use the desktop HTTPS client to request a specific attachment version from `api.atlassian.com`. The binary is then fetched from `api.media.atlassian.com` using the signed redirect, without forwarding the account token. Publish sends source note content, page and folder names, and referenced in-scope attachments only after local preflight and confirmation.
+- References to online images are emitted as links so the plugin does not fetch them. The plugin has no analytics and accesses the vault through Obsidian APIs.
+- Existing notes are modified only when the user explicitly confirms applying selected changes. Neither side's files or pages are automatically deleted. For any single Confluence folder, keep one designated publishing installation and let other installations preview or import.
 
 ## Coverage
 
 - Publish supports headings, basic emphasis, lists, Markdown tables, fenced code, links within the configured source, and referenced in-scope attachments up to 25 MiB each. Mermaid is published as fenced source in a Confluence code macro. Rich Markdown extensions and all Confluence editor features have limited conversion.
-- Import saves new page bodies under the separate import folder. It preserves attachment links for authenticated downloading in Confluence. Existing pages and previously imported copies are checked for page version, parent and title changes. Attachment-only changes without a page version increment are outside the preview.
+- Import saves new page bodies and attachments under the separate import folder. Attachments up to 25 MiB each are downloaded, with size verification. Earlier page-body comparisons and selective application cover the converted text, while attachment changes appear separately in the report.
 - The runtime uses common Obsidian desktop APIs and web APIs. Validate native installation and flows on macOS, Windows, and Linux before advertising support for those operating systems.
 
 ## Build and review

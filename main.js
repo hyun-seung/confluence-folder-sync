@@ -5,6 +5,7 @@ const { Plugin, PluginSettingTab, Setting, SecretComponent, Notice, Modal, reque
 const DESCENDANTS_DEPTH = 10;
 const API = "/wiki/api/v2";
 const REST = "/wiki/rest/api";
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 class ApiError extends Error {
   constructor(method, status) {
@@ -64,6 +65,76 @@ async function digest(value) {
   const bytes = typeof value === "string" ? new TextEncoder().encode(value) : value;
   const hash = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function attachmentEntry(file) {
+  const id = String(file.id).replace(/^att/, "");
+  const size = file.fileSize;
+  const version = file.version?.number;
+  if (!/^[0-9]+$/.test(id) || !Number.isSafeInteger(size) || size < 0 ||
+      !Number.isInteger(version) || version < 1 || typeof file.title !== "string") {
+    throw new Error("Confluence returned invalid attachment metadata.");
+  }
+  return { id, title: file.title, version, size };
+}
+
+function attachmentInventory(files) {
+  const entries = files.map(attachmentEntry).sort((left, right) => left.id.localeCompare(right.id));
+  if (new Set(entries.map(entry => entry.id)).size !== entries.length) {
+    throw new Error("Confluence returned duplicate attachment IDs.");
+  }
+  return entries;
+}
+
+function attachmentDiff(before, after) {
+  const prior = new Map(before.map(entry => [entry.id, entry]));
+  const changes = [];
+  for (const entry of after) {
+    const old = prior.get(entry.id);
+    if (!old) changes.push({ kind: "Added", title: entry.title, version: entry.version });
+    else if (entry.version !== old.version || entry.title !== old.title || entry.size !== old.size) {
+      changes.push({ kind: "Changed", title: entry.title, version: entry.version, before: old.version });
+    }
+    prior.delete(entry.id);
+  }
+  for (const entry of prior.values()) changes.push({ kind: "Removed", title: entry.title, version: entry.version });
+  return changes;
+}
+
+function binaryGet(url, headers, expectedBytes) {
+  // Node's desktop HTTPS client never follows redirects automatically.
+  const { get } = require("node:https");
+  return new Promise((resolve, reject) => {
+    const fail = () => reject(new Error("Could not read the Confluence attachment over HTTPS."));
+    const request = get(url, { headers, timeout: 30_000 }, response => {
+      const status = response.statusCode;
+      if (status !== 200 || expectedBytes === undefined) {
+        response.destroy();
+        resolve({ status, location: response.headers.location });
+        return;
+      }
+      const bytes = new Uint8Array(expectedBytes);
+      let read = 0;
+      response.on("data", chunk => {
+        if (read + chunk.length > bytes.length) {
+          reject(new Error("Attachment exceeded the size reported by Confluence."));
+          response.destroy();
+          return;
+        }
+        bytes.set(chunk, read);
+        read += chunk.length;
+      });
+      response.on("end", () => read === bytes.length ? resolve({ status, data: bytes.buffer }) :
+        reject(new Error("Attachment size did not match the Confluence metadata.")));
+      response.on("error", fail);
+      response.on("aborted", fail);
+    });
+    request.on("error", fail);
+    request.on("timeout", () => {
+      reject(new Error("Confluence attachment download timed out."));
+      request.destroy();
+    });
+  });
 }
 
 class ConfluenceCloud {
@@ -214,6 +285,25 @@ class ConfluenceCloud {
 
   attachments(id) {
     return this.list(API + `/pages/${numericId(id)}/attachments`, { limit: 100 });
+  }
+
+  async downloadAttachment(pageId, file, get = binaryGet) {
+    const entry = attachmentEntry(file);
+    if (entry.size > MAX_ATTACHMENT_BYTES) throw new Error("Attachment exceeds the 25 MiB limit: " + entry.title);
+    const path = REST + "/content/" + numericId(pageId) + "/child/attachment/" +
+      encodeURIComponent(file.id) + "/download?version=" + entry.version;
+    const response = await get(this.gateway + path, { Authorization: this.auth });
+    if (response.status !== 302 || typeof response.location !== "string") {
+      throw new ApiError("attachment lookup", response.status);
+    }
+    const target = new URL(response.location);
+    if (target.origin !== "https://api.media.atlassian.com" || target.username || target.password) {
+      throw new Error("Confluence returned an unexpected attachment download host.");
+    }
+    const media = await get(target.href, {}, entry.size);
+    if (media.status !== 200) throw new ApiError("attachment download", media.status);
+    if (media.data?.byteLength !== entry.size) throw new Error("Confluence returned a truncated attachment.");
+    return media.data;
   }
 
   async upload(id, asset) {
@@ -477,9 +567,10 @@ function fromStorage(body, pageUrl, attachments = new Map()) {
       const label = (linkBody ? contents(linkBody) : text).trim() ||
         markdownText(attachment?.getAttributeNS(ri, "filename") || targetPage?.getAttributeNS(ri, "content-title") ||
           node.getAttribute("alt") || node.getAttribute("href") || "Confluence attachment");
+      const local = attachments.get(attachment?.getAttributeNS(ri, "filename"));
+      if (local) return (tag === "image" && local.image ? "!" : "") + "[" + label + "](<" + local.path + ">)";
       const anchor = node.getAttributeNS(ac, "anchor");
-      const url = webLink(attachments.get(attachment?.getAttributeNS(ri, "filename")) ||
-        node.getAttribute("href") || node.getAttribute("src") ||
+      const url = webLink(node.getAttribute("href") || node.getAttribute("src") ||
         imageUrl?.getAttributeNS(ri, "value") || (anchor ? "#" + anchor : pageUrl), pageUrl);
       return url ? "[" + label + "](<" + url + ">)" : label;
     }
@@ -602,7 +693,7 @@ async function preparedNotes(app, config) {
       if (!target || target.file.extension?.toLowerCase() === "md") continue;
       let asset = binaries.get(target.file.path);
       if (!asset) {
-        if (target.file.stat.size > 25 * 1024 * 1024) {
+        if (target.file.stat.size > MAX_ATTACHMENT_BYTES) {
           throw new Error("An attachment exceeds this plugin's 25 MiB limit: " + target.file.name);
         }
         const data = await app.vault.readBinary(target.file);
@@ -797,6 +888,17 @@ class Publisher {
       if (numericId(result.id) !== entry.id || result.version.number !== page.version.number + 1) {
         throw new Error("Confluence did not confirm the expected update.");
       }
+      if (!entry.remoteAttachments || assets.length) {
+        const inventory = attachmentInventory(await this.client.attachments(entry.id));
+        if (!entry.remoteAttachments) {
+          entry.remoteAttachments = inventory;
+        } else {
+          const managed = new Set(assets.map(asset => asset.name));
+          const merged = new Map(entry.remoteAttachments.map(asset => [asset.id, asset]));
+          for (const asset of inventory) if (managed.has(asset.title)) merged.set(asset.id, asset);
+          entry.remoteAttachments = Array.from(merged.values());
+        }
+      }
       entry.version = result.version.number;
       entry.bodyHash = bodyHash;
       entry.sourceHash = note.sourceHash;
@@ -866,16 +968,9 @@ async function makeVaultFolders(vault, target, inbox) {
   }
 }
 
-function attachmentLinks(client, attachments, pageUrl) {
-  const links = new Map();
-  for (const file of attachments) {
-    let candidate = file.downloadLink || file._links?.download;
-    if (typeof candidate === "string" && candidate.startsWith("/download/")) candidate = "/wiki" + candidate;
-    const safe = typeof candidate === "string" ? webLink(candidate, client.config.origin) : null;
-    const url = safe && new URL(safe).origin === client.config.origin ? safe : pageUrl;
-    links.set(file.title, url);
-  }
-  return links;
+function attachmentName(entry) {
+  const name = normalized(entry.title).replace(/[\\/:*?"<>|#^[\]\x00-\x1f]/g, "-").trim();
+  return entry.id + "-v" + entry.version + "-" + (Array.from(name).slice(-100).join("").replace(/[. ]+$/g, "") || "attachment");
 }
 
 async function copyRemotePage(vault, client, page, trail, body, destination) {
@@ -883,17 +978,39 @@ async function copyRemotePage(vault, client, page, trail, body, destination) {
   const id = numericId(page.id);
   const version = page.version.number;
   const url = client.pageUrl(id);
-  const links = attachmentLinks(client, await client.attachments(id), url);
+  const attachments = await client.attachments(id);
+  const inventory = attachmentInventory(attachments);
+  const seen = new Set();
+  if (inventory.some(asset => asset.size > MAX_ATTACHMENT_BYTES)) {
+    throw new Error("A Confluence attachment exceeds the 25 MiB limit for " + page.title + ".");
+  }
+  await makeVaultFolders(vault, directory, client.config.inbox);
+  if (attachments.length) await makeVaultFolders(vault, directory + "/Attachments", client.config.inbox);
+  const links = new Map();
+  for (const attachment of attachments) {
+    const entry = attachmentEntry(attachment);
+    if (seen.has(entry.title)) throw new Error("Confluence returned duplicate attachment names.");
+    seen.add(entry.title);
+    const name = attachmentName(entry);
+    const path = directory + "/Attachments/" + name;
+    const data = await client.downloadAttachment(id, attachment);
+    const prior = vault.getFileByPath(path);
+    if (!prior) await vault.createBinary(path, data);
+    else if (await digest(await vault.readBinary(prior)) !== await digest(data)) {
+      throw new Error("An existing local attachment has different content: " + name);
+    }
+    links.set(entry.title, { path: "Attachments/" + encodeURIComponent(name), image: IMAGE_FILE.test(entry.title) });
+  }
   const markdown = "# " + markdownText(page.title) + "\n\n[Confluence · version " + version + "](" + url + ")\n\n" +
     fromStorage(body, url, links) + (links.size ? "\n## Confluence attachments\n\n" +
-      Array.from(links, ([title, link]) => "- [" + markdownText(title) + "](<" + link + ">)").join("\n") + "\n" : "");
-  await makeVaultFolders(vault, directory, client.config.inbox);
+      Array.from(links, ([title, link]) => "- [" + markdownText(title) + "](<" + link.path + ">)").join("\n") + "\n" : "");
   const path = directory + "/v" + version + ".md";
   const existing = vault.getFileByPath(path);
   if (existing && await vault.read(existing) !== markdown) {
     throw new Error("An existing local file has different contents: " + path);
   }
-  return existing ?? await vault.create(path, markdown);
+  const file = existing ?? await vault.create(path, markdown);
+  return { file, inventory };
 }
 
 async function remotePages(client, catalog) {
@@ -917,11 +1034,12 @@ async function downloadSnapshot(vault, client, remote, selectedId) {
   try {
     for (const [id, page] of selection) {
       const body = await checkedBody(client, page);
-      copies.push(await copyRemotePage(vault, client, page, remote.trails.get(id), body, destination));
+      const copy = await copyRemotePage(vault, client, page, remote.trails.get(id), body, destination);
+      copies.push(copy.file);
     }
   } catch (error) {
-    const saved = copies.length ? " " + copies.length + " saved under " + destination + "." : "";
-    throw new Error("Snapshot stopped. " + error.message + saved);
+    throw new Error("Snapshot stopped after " + copies.length + " copies. " + error.message +
+      " Check " + destination + " for saved files.");
   }
   const summary = copies.length + " current " + (copies.length === 1 ? "copy saved" : "copies saved");
   if (copies.length === 1) return { file: copies[0], summary };
@@ -942,6 +1060,17 @@ async function incoming(app, client, catalog, profile, save, importNew) {
   let newCount = 0;
   let changedCount = 0;
   let importedCount = 0;
+  let baselines = 0;
+  const remoteAttachments = new Map();
+  if (!importNew) {
+    const trackedIds = Array.from(pages.keys()).filter(id => linked.has(id) || profile.imports[id]);
+    for (let start = 0; start < trackedIds.length; start += 4) {
+      const batch = trackedIds.slice(start, start + 4);
+      await Promise.all(batch.map(async id => {
+        remoteAttachments.set(id, attachmentInventory(await client.attachments(id)));
+      }));
+    }
+  }
   for (const [id, page] of pages) {
     const local = linked.get(id) ?? profile.imports[id];
     const label = "[" + markdownText(page.title) + "](" + client.pageUrl(id) + ")";
@@ -949,10 +1078,10 @@ async function incoming(app, client, catalog, profile, save, importNew) {
       newCount++;
       if (importNew) {
         const body = await checkedBody(client, page);
-        const file = await copyRemotePage(app.vault, client, page, trails.get(id), body,
+        const copy = await copyRemotePage(app.vault, client, page, trails.get(id), body,
           client.config.inbox + "/Imported pages");
-        profile.imports[id] = { path: file.path, version: page.version.number, title: page.title,
-          parent: String(page.parentId) };
+        profile.imports[id] = { path: copy.file.path, version: page.version.number, title: page.title,
+          parent: String(page.parentId), remoteAttachments: copy.inventory };
         await save();
         importedCount++;
       }
@@ -962,7 +1091,18 @@ async function incoming(app, client, catalog, profile, save, importNew) {
     const version = page.version.number;
     const moved = String(page.parentId) !== local.parent;
     const renamed = page.title !== local.title;
-    if (version === local.version && !moved && !renamed) continue;
+    const inventory = remoteAttachments.get(id);
+    let fileChanges = [];
+    if (inventory) {
+      if (local.remoteAttachments) {
+        fileChanges = attachmentDiff(local.remoteAttachments, inventory);
+      } else {
+        const entry = linked.has(id) ? profile.pages["file:" + local.path] : profile.imports[id];
+        entry.remoteAttachments = inventory;
+        baselines++;
+      }
+    }
+    if (version === local.version && !moved && !renamed && !fileChanges.length) continue;
     changedCount++;
     if (importNew) continue;
     const details = ["### " + label, "- Confluence version " + local.version + " → " + version,
@@ -973,6 +1113,10 @@ async function incoming(app, client, catalog, profile, save, importNew) {
     if (both) details.push("- Both the local note and the Confluence page changed.");
     if (moved) details.push("- The Confluence parent changed.");
     if (renamed) details.push("- The Confluence title changed.");
+    for (const file of fileChanges) {
+      const versionLabel = file.before ? "v" + file.before + " → v" + file.version : "v" + file.version;
+      details.push("- Attachment " + file.kind.toLowerCase() + " · " + markdownText(file.title) + " · " + versionLabel);
+    }
     if (version !== local.version) {
       const url = client.pageUrl(id);
       const latest = fromStorage(await checkedBody(client, page), url);
@@ -996,12 +1140,176 @@ async function incoming(app, client, catalog, profile, save, importNew) {
   const date = new Date().toISOString().replace(/[:.]/g, "-");
   const path = client.config.inbox + "/" + title + " " + date + " " + crypto.randomUUID().slice(0, 8) + ".md";
   const instructions = importNew ?
-    "New pages are saved under Imported pages. Attachment links open in Confluence." :
+    "New pages and their attachments are saved under Imported pages." :
     "Review the differences and copy the changes you want to incorporate into the original note.";
+  if (baselines) {
+    await save();
+    changes.unshift("Recorded current attachment versions for " + baselines + " previously tracked pages.");
+  }
   await makeVaultFolders(app.vault, client.config.inbox, client.config.inbox);
   const file = await app.vault.create(path, "# " + title + "\n\n" + summary + "\n\n" + instructions +
     (changes.length ? "\n\n" + changes.join("\n\n") : "") + "\n");
   return { file, summary };
+}
+
+function reviewHunks(before, after) {
+  const diff = diffLines(before, after);
+  if (!diff) return [];
+  const lines = diff.split("\n");
+  const first = /^@@ from line (\d+) @@$/.exec(lines.shift());
+  if (!first || lines[0]?.startsWith("Large comparison:")) {
+    throw new Error("This comparison is too large for selective application. Use the regular preview.");
+  }
+  const base = before.trimEnd().split("\n");
+  const hunks = [];
+  let offset = Number(first[1]) - 1;
+  let active;
+  for (const line of lines) {
+    const marker = line[0];
+    if (marker === " ") {
+      if (active) hunks.push(active);
+      active = null;
+      offset++;
+      continue;
+    }
+    if (marker !== "-" && marker !== "+") throw new Error("The comparison could not be split into changes.");
+    active ??= { offset, remove: [], insert: [] };
+    if (marker === "-") {
+      active.remove.push(line.slice(1));
+      offset++;
+    } else {
+      active.insert.push(line.slice(1));
+    }
+  }
+  if (active) hunks.push(active);
+  return hunks.map(hunk => ({
+    ...hunk,
+    before: nearestNonblank(base, hunk.offset - 1, -1),
+    after: nearestNonblank(base, hunk.offset + hunk.remove.length, 1),
+  }));
+}
+
+function nearestNonblank(lines, position, step) {
+  for (let at = position; at >= 0 && at < lines.length; at += step) {
+    if (lines[at].trim()) return lines[at];
+  }
+  return null;
+}
+
+function textLines(text) {
+  return text.replace(/\r\n?/g, "\n").split("\n");
+}
+
+function matchHunk(lines, hunk) {
+  const locations = [];
+  const matchesContext = start => {
+    const before = nearestNonblank(lines, start - 1, -1);
+    const after = nearestNonblank(lines, start + hunk.remove.length, 1);
+    return before === hunk.before && after === hunk.after;
+  };
+  for (let start = 0; start <= lines.length - hunk.remove.length; start++) {
+    if (hunk.remove.every((line, index) => line === lines[start + index]) && matchesContext(start)) {
+      locations.push(start);
+    }
+  }
+  if (hunk.remove.length) return locations.length === 1 ? locations[0] : null;
+  // Empty lines between the same two anchors are equivalent insertion locations.
+  // Distinct occurrences of the anchors are ambiguous.
+  if (!locations.length ||
+      locations.some((at, index) => index && at !== locations[index - 1] + 1)) return null;
+  return locations[0];
+}
+
+function mergeSelected(original, chunks) {
+  if (/\r(?!\n)/.test(original) || (original.includes("\r\n") && /(^|[^\r])\n/.test(original))) {
+    throw new Error("This note has mixed line endings. Apply the changes manually.");
+  }
+  const lines = textLines(original);
+  const sorted = chunks.slice().sort((left, right) => right.at - left.at);
+  let boundary = lines.length + 1;
+  for (const chunk of sorted) {
+    if (chunk.at === null || chunk.at >= boundary || chunk.at + chunk.remove.length > boundary ||
+        !chunk.remove.every((line, index) => lines[chunk.at + index] === line)) {
+      throw new Error("The selected changes overlap or no longer match the note.");
+    }
+    lines.splice(chunk.at, chunk.remove.length, ...chunk.insert);
+    boundary = chunk.at;
+  }
+  return lines.join(original.includes("\r\n") ? "\r\n" : "\n");
+}
+
+function mappedSource(profile, id, source) {
+  const matches = Object.entries(profile.pages).filter(([key, entry]) =>
+    key.startsWith("file:") && entry.id === id && key.slice(5).startsWith(source + "/"));
+  if (matches.length !== 1) throw new Error("This page is not linked to one published note in the active source folder.");
+  const [[key, entry]] = matches;
+  return { path: key.slice(5), entry };
+}
+
+async function prepareLocalReview(app, client, profile, page) {
+  const id = numericId(page.id);
+  const { path, entry } = mappedSource(profile, id, client.config.source);
+  if (entry.pending || entry.creating || !entry.bodyHash) {
+    throw new Error("The link has an unfinished publish. Resolve it before reviewing edits.");
+  }
+  const file = app.vault.getFileByPath(path);
+  if (!file || file.extension !== "md") throw new Error("The linked local Markdown file is unavailable: " + path);
+  const original = await app.vault.read(file);
+  const latest = await checkedBody(client, page);
+  const prior = page.version.number === entry.version ? latest : await checkedBody(client, page, entry.version);
+  const url = client.pageUrl(id);
+  const hunks = reviewHunks(fromStorage(prior, url), fromStorage(latest, url));
+  return { id, path, original, baseVersion: entry.version, version: page.version.number,
+    bodyHash: await digest(latest), origin: client.config.origin, folderId: client.config.folderId,
+    hunks: hunks.map(hunk => ({ ...hunk, at: matchHunk(textLines(original), hunk) })) };
+}
+
+function editorMatches(app, path, original) {
+  return app.workspace.getLeavesOfType("markdown").every(({ view }) =>
+    view.file?.path !== path || !view.editor ||
+      view.editor.getValue().replace(/\r\n/g, "\n") === original.replace(/\r\n/g, "\n"));
+}
+
+async function applyLocalReview(app, client, profile, page, review, selection) {
+  if (client.config.origin !== review.origin || client.config.folderId !== review.folderId ||
+      String(page.id) !== review.id || page.version.number !== review.version) {
+    throw new Error("The Confluence page or destination changed. Review the latest version again.");
+  }
+  const { path, entry } = mappedSource(profile, review.id, client.config.source);
+  if (path !== review.path || entry.version !== review.baseVersion || entry.pending ||
+      await digest(await checkedBody(client, page)) !== review.bodyHash) {
+    throw new Error("The Confluence page or its link changed. Review the latest version again.");
+  }
+  const indexes = Array.from(new Set(selection));
+  if (!indexes.length || indexes.some(index => !Number.isInteger(index) || !review.hunks[index])) {
+    throw new Error("Select at least one valid change.");
+  }
+  const changed = mergeSelected(review.original, indexes.map(index => review.hunks[index]));
+  if (changed === review.original) throw new Error("The selected changes would not modify the note.");
+  const file = app.vault.getFileByPath(path);
+  if (!file || await app.vault.read(file) !== review.original || !editorMatches(app, path, review.original)) {
+    throw new Error("The local note changed after review. Review it again.");
+  }
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-") + " " + crypto.randomUUID().slice(0, 8);
+  const backup = client.config.inbox + "/Backups/" + stamp + "/" + path.slice(client.config.source.length + 1);
+  await makeVaultFolders(app.vault, parentPath(backup), client.config.inbox);
+  await app.vault.create(backup, review.original);
+
+  // Recheck after creating the backup and let Vault.process guard against a newer local edit.
+  const latest = await client.page(review.id);
+  if (String(latest.id) !== review.id || String(latest.spaceId) !== client.spaceId ||
+      latest.version.number !== review.version || String(latest.parentId) !== String(page.parentId) ||
+      latest.title !== page.title || latest.status !== "current") {
+    throw new Error("The Confluence page changed while preparing the backup. No local change was applied.");
+  }
+  await app.vault.process(file, current => {
+    if (current !== review.original || file.path !== path || !editorMatches(app, path, current)) {
+      throw new Error("The local note changed while applying the selection. No local change was applied.");
+    }
+    return changed;
+  });
+  return { count: indexes.length, backup };
 }
 
 class SyncDashboard extends Modal {
@@ -1055,6 +1363,8 @@ class SyncDashboard extends Modal {
         this.pageId = value;
         this.versions = [];
         this.difference = null;
+        this.review = null;
+        this.backup = null;
         this.render();
       });
     });
@@ -1063,6 +1373,7 @@ class SyncDashboard extends Modal {
         .setDisabled(this.busy).onChange(value => this.filterPages(value)));
     new Setting(contentEl).setName("Selected page")
       .addButton(button("Load versions", () => this.loadVersions(), !this.pageId))
+      .addButton(button("Review local application", () => this.loadReview(), !this.pageId))
       .addButton(button("Download latest copy", () => this.saveSnapshot(this.pageId), !this.pageId));
     if (this.versions.length > 1) {
       const version = (field, name) => dropdown => {
@@ -1081,11 +1392,46 @@ class SyncDashboard extends Modal {
     }
     if (this.difference) {
       contentEl.createEl("h3", { text: this.difference.title });
-      const diff = contentEl.createEl("pre", { cls: "cfs-diff", attr: { tabindex: "0", "aria-label": "Version differences" } });
-      for (const line of this.difference.text.split("\n")) {
-        const cls = line.startsWith("+") ? "cfs-added" : line.startsWith("-") ? "cfs-removed" : "";
-        diff.createSpan({ text: line + "\n", cls });
+      this.renderDiff(contentEl, this.difference.text.split("\n"), "Version differences");
+    }
+    if (this.review?.hunks.length) {
+      const { path, baseVersion, version, hunks } = this.review;
+      contentEl.createEl("h3", { text: "Apply selected changes to " + path });
+      contentEl.createEl("p", { text: "Confluence v" + baseVersion + " → v" + version });
+      for (const [index, hunk] of hunks.entries()) {
+        const label = "Change " + (index + 1);
+        new Setting(contentEl).setName(label).setDesc(hunk.at === null ?
+          "The local context is missing or ambiguous." : "Local line " + (hunk.at + 1))
+          .addToggle(toggle => toggle.setDisabled(this.busy || hunk.at === null)
+            .setValue(this.selection.has(index)).onChange(enabled => {
+              if (enabled) this.selection.add(index);
+              else this.selection.delete(index);
+              this.applyButton?.setDisabled(this.selection.size === 0);
+            }));
+        this.renderDiff(contentEl, [
+          ...hunk.remove.map(line => "-" + line), ...hunk.insert.map(line => "+" + line),
+        ], label);
       }
+      new Setting(contentEl).addButton(component => {
+        this.applyButton = component;
+        button("Apply selected changes", () => this.applyReview(), !this.selection.size)(component);
+      });
+    }
+    if (this.backup) {
+      new Setting(contentEl).setName("Backup saved")
+        .addButton(button("Open backup", async () => {
+          const file = this.app.vault.getFileByPath(this.backup);
+          if (file) await this.app.workspace.getLeaf("tab").openFile(file);
+          this.close();
+        }));
+    }
+  }
+
+  renderDiff(parent, lines, label) {
+    const diff = parent.createEl("pre", { cls: "cfs-diff", attr: { tabindex: "0", "aria-label": label } });
+    for (const line of lines) {
+      const cls = line.startsWith("+") ? "cfs-added" : line.startsWith("-") ? "cfs-removed" : "";
+      diff.createSpan({ text: line + "\n", cls });
     }
   }
 
@@ -1128,6 +1474,7 @@ class SyncDashboard extends Modal {
         this.pageId = "";
         this.versions = [];
         this.difference = null;
+        this.review = null;
       }
       this.status = folder.title + " · " + this.pages.length + " pages";
     });
@@ -1135,11 +1482,11 @@ class SyncDashboard extends Modal {
 
   selected(message, task) {
     const id = this.pageId;
-    return this.perform(message, async ({ client }) => {
+    return this.perform(message, async ({ client, profile }) => {
       const remote = await remotePages(client, await client.catalog());
       const page = remote.pages.get(id);
       if (!page) throw new Error("The selected page is no longer in this Confluence folder.");
-      await task(client, page);
+      await task(client, page, profile);
     });
   }
 
@@ -1169,6 +1516,38 @@ class SyncDashboard extends Modal {
       this.difference = { title: page.title + " · v" + before + " → v" + after,
         text: diff || "No converted Markdown body difference." };
       this.status = "Version comparison complete.";
+    });
+  }
+
+  loadReview() {
+    return this.selected("Finding changes that match the local note…", async (client, page, profile) => {
+      this.review = null;
+      this.backup = null;
+      this.review = await prepareLocalReview(this.app, client, profile, page);
+      this.selection = new Set();
+      const total = this.review.hunks.length;
+      const available = this.review.hunks.filter(hunk => hunk.at !== null).length;
+      this.status = total ? available + " of " + total + " changes match the local note." : "No incoming body changes.";
+    });
+  }
+
+  applyReview() {
+    const review = this.review;
+    const selection = Array.from(this.selection);
+    return this.selected("Checking the selected changes…", async (client, page, profile) => {
+      if (!this.opened) return;
+      const approved = await this.plugin.confirm("Apply selected changes",
+        "Apply " + selection.length + " changes to " + review.path + "? A backup will be saved first.",
+        "Apply changes");
+      if (!approved || !this.opened) {
+        this.status = "Application cancelled.";
+        return;
+      }
+      const result = await applyLocalReview(this.app, client, profile, page, review, selection);
+      this.review = null;
+      this.selection = new Set();
+      this.backup = result.backup;
+      this.status = result.count + " changes applied to the local note.";
     });
   }
 

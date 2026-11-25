@@ -49,6 +49,8 @@ class SyncDashboard extends Modal {
         this.pageId = value;
         this.versions = [];
         this.difference = null;
+        this.review = null;
+        this.backup = null;
         this.render();
       });
     });
@@ -57,6 +59,7 @@ class SyncDashboard extends Modal {
         .setDisabled(this.busy).onChange(value => this.filterPages(value)));
     new Setting(contentEl).setName("Selected page")
       .addButton(button("Load versions", () => this.loadVersions(), !this.pageId))
+      .addButton(button("Review local application", () => this.loadReview(), !this.pageId))
       .addButton(button("Download latest copy", () => this.saveSnapshot(this.pageId), !this.pageId));
     if (this.versions.length > 1) {
       const version = (field, name) => dropdown => {
@@ -75,11 +78,46 @@ class SyncDashboard extends Modal {
     }
     if (this.difference) {
       contentEl.createEl("h3", { text: this.difference.title });
-      const diff = contentEl.createEl("pre", { cls: "cfs-diff", attr: { tabindex: "0", "aria-label": "Version differences" } });
-      for (const line of this.difference.text.split("\n")) {
-        const cls = line.startsWith("+") ? "cfs-added" : line.startsWith("-") ? "cfs-removed" : "";
-        diff.createSpan({ text: line + "\n", cls });
+      this.renderDiff(contentEl, this.difference.text.split("\n"), "Version differences");
+    }
+    if (this.review?.hunks.length) {
+      const { path, baseVersion, version, hunks } = this.review;
+      contentEl.createEl("h3", { text: "Apply selected changes to " + path });
+      contentEl.createEl("p", { text: "Confluence v" + baseVersion + " → v" + version });
+      for (const [index, hunk] of hunks.entries()) {
+        const label = "Change " + (index + 1);
+        new Setting(contentEl).setName(label).setDesc(hunk.at === null ?
+          "The local context is missing or ambiguous." : "Local line " + (hunk.at + 1))
+          .addToggle(toggle => toggle.setDisabled(this.busy || hunk.at === null)
+            .setValue(this.selection.has(index)).onChange(enabled => {
+              if (enabled) this.selection.add(index);
+              else this.selection.delete(index);
+              this.applyButton?.setDisabled(this.selection.size === 0);
+            }));
+        this.renderDiff(contentEl, [
+          ...hunk.remove.map(line => "-" + line), ...hunk.insert.map(line => "+" + line),
+        ], label);
       }
+      new Setting(contentEl).addButton(component => {
+        this.applyButton = component;
+        button("Apply selected changes", () => this.applyReview(), !this.selection.size)(component);
+      });
+    }
+    if (this.backup) {
+      new Setting(contentEl).setName("Backup saved")
+        .addButton(button("Open backup", async () => {
+          const file = this.app.vault.getFileByPath(this.backup);
+          if (file) await this.app.workspace.getLeaf("tab").openFile(file);
+          this.close();
+        }));
+    }
+  }
+
+  renderDiff(parent, lines, label) {
+    const diff = parent.createEl("pre", { cls: "cfs-diff", attr: { tabindex: "0", "aria-label": label } });
+    for (const line of lines) {
+      const cls = line.startsWith("+") ? "cfs-added" : line.startsWith("-") ? "cfs-removed" : "";
+      diff.createSpan({ text: line + "\n", cls });
     }
   }
 
@@ -122,6 +160,7 @@ class SyncDashboard extends Modal {
         this.pageId = "";
         this.versions = [];
         this.difference = null;
+        this.review = null;
       }
       this.status = folder.title + " · " + this.pages.length + " pages";
     });
@@ -129,11 +168,11 @@ class SyncDashboard extends Modal {
 
   selected(message, task) {
     const id = this.pageId;
-    return this.perform(message, async ({ client }) => {
+    return this.perform(message, async ({ client, profile }) => {
       const remote = await remotePages(client, await client.catalog());
       const page = remote.pages.get(id);
       if (!page) throw new Error("The selected page is no longer in this Confluence folder.");
-      await task(client, page);
+      await task(client, page, profile);
     });
   }
 
@@ -163,6 +202,38 @@ class SyncDashboard extends Modal {
       this.difference = { title: page.title + " · v" + before + " → v" + after,
         text: diff || "No converted Markdown body difference." };
       this.status = "Version comparison complete.";
+    });
+  }
+
+  loadReview() {
+    return this.selected("Finding changes that match the local note…", async (client, page, profile) => {
+      this.review = null;
+      this.backup = null;
+      this.review = await prepareLocalReview(this.app, client, profile, page);
+      this.selection = new Set();
+      const total = this.review.hunks.length;
+      const available = this.review.hunks.filter(hunk => hunk.at !== null).length;
+      this.status = total ? available + " of " + total + " changes match the local note." : "No incoming body changes.";
+    });
+  }
+
+  applyReview() {
+    const review = this.review;
+    const selection = Array.from(this.selection);
+    return this.selected("Checking the selected changes…", async (client, page, profile) => {
+      if (!this.opened) return;
+      const approved = await this.plugin.confirm("Apply selected changes",
+        "Apply " + selection.length + " changes to " + review.path + "? A backup will be saved first.",
+        "Apply changes");
+      if (!approved || !this.opened) {
+        this.status = "Application cancelled.";
+        return;
+      }
+      const result = await applyLocalReview(this.app, client, profile, page, review, selection);
+      this.review = null;
+      this.selection = new Set();
+      this.backup = result.backup;
+      this.status = result.count + " changes applied to the local note.";
     });
   }
 

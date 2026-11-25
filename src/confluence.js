@@ -3,6 +3,7 @@ const { Plugin, PluginSettingTab, Setting, SecretComponent, Notice, Modal, reque
 const DESCENDANTS_DEPTH = 10;
 const API = "/wiki/api/v2";
 const REST = "/wiki/rest/api";
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 class ApiError extends Error {
   constructor(method, status) {
@@ -62,6 +63,76 @@ async function digest(value) {
   const bytes = typeof value === "string" ? new TextEncoder().encode(value) : value;
   const hash = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function attachmentEntry(file) {
+  const id = String(file.id).replace(/^att/, "");
+  const size = file.fileSize;
+  const version = file.version?.number;
+  if (!/^[0-9]+$/.test(id) || !Number.isSafeInteger(size) || size < 0 ||
+      !Number.isInteger(version) || version < 1 || typeof file.title !== "string") {
+    throw new Error("Confluence returned invalid attachment metadata.");
+  }
+  return { id, title: file.title, version, size };
+}
+
+function attachmentInventory(files) {
+  const entries = files.map(attachmentEntry).sort((left, right) => left.id.localeCompare(right.id));
+  if (new Set(entries.map(entry => entry.id)).size !== entries.length) {
+    throw new Error("Confluence returned duplicate attachment IDs.");
+  }
+  return entries;
+}
+
+function attachmentDiff(before, after) {
+  const prior = new Map(before.map(entry => [entry.id, entry]));
+  const changes = [];
+  for (const entry of after) {
+    const old = prior.get(entry.id);
+    if (!old) changes.push({ kind: "Added", title: entry.title, version: entry.version });
+    else if (entry.version !== old.version || entry.title !== old.title || entry.size !== old.size) {
+      changes.push({ kind: "Changed", title: entry.title, version: entry.version, before: old.version });
+    }
+    prior.delete(entry.id);
+  }
+  for (const entry of prior.values()) changes.push({ kind: "Removed", title: entry.title, version: entry.version });
+  return changes;
+}
+
+function binaryGet(url, headers, expectedBytes) {
+  // Node's desktop HTTPS client never follows redirects automatically.
+  const { get } = require("node:https");
+  return new Promise((resolve, reject) => {
+    const fail = () => reject(new Error("Could not read the Confluence attachment over HTTPS."));
+    const request = get(url, { headers, timeout: 30_000 }, response => {
+      const status = response.statusCode;
+      if (status !== 200 || expectedBytes === undefined) {
+        response.destroy();
+        resolve({ status, location: response.headers.location });
+        return;
+      }
+      const bytes = new Uint8Array(expectedBytes);
+      let read = 0;
+      response.on("data", chunk => {
+        if (read + chunk.length > bytes.length) {
+          reject(new Error("Attachment exceeded the size reported by Confluence."));
+          response.destroy();
+          return;
+        }
+        bytes.set(chunk, read);
+        read += chunk.length;
+      });
+      response.on("end", () => read === bytes.length ? resolve({ status, data: bytes.buffer }) :
+        reject(new Error("Attachment size did not match the Confluence metadata.")));
+      response.on("error", fail);
+      response.on("aborted", fail);
+    });
+    request.on("error", fail);
+    request.on("timeout", () => {
+      reject(new Error("Confluence attachment download timed out."));
+      request.destroy();
+    });
+  });
 }
 
 class ConfluenceCloud {
@@ -212,6 +283,25 @@ class ConfluenceCloud {
 
   attachments(id) {
     return this.list(API + `/pages/${numericId(id)}/attachments`, { limit: 100 });
+  }
+
+  async downloadAttachment(pageId, file, get = binaryGet) {
+    const entry = attachmentEntry(file);
+    if (entry.size > MAX_ATTACHMENT_BYTES) throw new Error("Attachment exceeds the 25 MiB limit: " + entry.title);
+    const path = REST + "/content/" + numericId(pageId) + "/child/attachment/" +
+      encodeURIComponent(file.id) + "/download?version=" + entry.version;
+    const response = await get(this.gateway + path, { Authorization: this.auth });
+    if (response.status !== 302 || typeof response.location !== "string") {
+      throw new ApiError("attachment lookup", response.status);
+    }
+    const target = new URL(response.location);
+    if (target.origin !== "https://api.media.atlassian.com" || target.username || target.password) {
+      throw new Error("Confluence returned an unexpected attachment download host.");
+    }
+    const media = await get(target.href, {}, entry.size);
+    if (media.status !== 200) throw new ApiError("attachment download", media.status);
+    if (media.data?.byteLength !== entry.size) throw new Error("Confluence returned a truncated attachment.");
+    return media.data;
   }
 
   async upload(id, asset) {

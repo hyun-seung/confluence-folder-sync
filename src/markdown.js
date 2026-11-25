@@ -239,9 +239,10 @@ function fromStorage(body, pageUrl, attachments = new Map()) {
       const label = (linkBody ? contents(linkBody) : text).trim() ||
         markdownText(attachment?.getAttributeNS(ri, "filename") || targetPage?.getAttributeNS(ri, "content-title") ||
           node.getAttribute("alt") || node.getAttribute("href") || "Confluence attachment");
+      const local = attachments.get(attachment?.getAttributeNS(ri, "filename"));
+      if (local) return (tag === "image" && local.image ? "!" : "") + "[" + label + "](<" + local.path + ">)";
       const anchor = node.getAttributeNS(ac, "anchor");
-      const url = webLink(attachments.get(attachment?.getAttributeNS(ri, "filename")) ||
-        node.getAttribute("href") || node.getAttribute("src") ||
+      const url = webLink(node.getAttribute("href") || node.getAttribute("src") ||
         imageUrl?.getAttributeNS(ri, "value") || (anchor ? "#" + anchor : pageUrl), pageUrl);
       return url ? "[" + label + "](<" + url + ">)" : label;
     }

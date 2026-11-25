@@ -51,7 +51,7 @@ async function preparedNotes(app, config) {
       if (!target || target.file.extension?.toLowerCase() === "md") continue;
       let asset = binaries.get(target.file.path);
       if (!asset) {
-        if (target.file.stat.size > 25 * 1024 * 1024) {
+        if (target.file.stat.size > MAX_ATTACHMENT_BYTES) {
           throw new Error("An attachment exceeds this plugin's 25 MiB limit: " + target.file.name);
         }
         const data = await app.vault.readBinary(target.file);
@@ -246,6 +246,17 @@ class Publisher {
       if (numericId(result.id) !== entry.id || result.version.number !== page.version.number + 1) {
         throw new Error("Confluence did not confirm the expected update.");
       }
+      if (!entry.remoteAttachments || assets.length) {
+        const inventory = attachmentInventory(await this.client.attachments(entry.id));
+        if (!entry.remoteAttachments) {
+          entry.remoteAttachments = inventory;
+        } else {
+          const managed = new Set(assets.map(asset => asset.name));
+          const merged = new Map(entry.remoteAttachments.map(asset => [asset.id, asset]));
+          for (const asset of inventory) if (managed.has(asset.title)) merged.set(asset.id, asset);
+          entry.remoteAttachments = Array.from(merged.values());
+        }
+      }
       entry.version = result.version.number;
       entry.bodyHash = bodyHash;
       entry.sourceHash = note.sourceHash;
@@ -315,16 +326,9 @@ async function makeVaultFolders(vault, target, inbox) {
   }
 }
 
-function attachmentLinks(client, attachments, pageUrl) {
-  const links = new Map();
-  for (const file of attachments) {
-    let candidate = file.downloadLink || file._links?.download;
-    if (typeof candidate === "string" && candidate.startsWith("/download/")) candidate = "/wiki" + candidate;
-    const safe = typeof candidate === "string" ? webLink(candidate, client.config.origin) : null;
-    const url = safe && new URL(safe).origin === client.config.origin ? safe : pageUrl;
-    links.set(file.title, url);
-  }
-  return links;
+function attachmentName(entry) {
+  const name = normalized(entry.title).replace(/[\\/:*?"<>|#^[\]\x00-\x1f]/g, "-").trim();
+  return entry.id + "-v" + entry.version + "-" + (Array.from(name).slice(-100).join("").replace(/[. ]+$/g, "") || "attachment");
 }
 
 async function copyRemotePage(vault, client, page, trail, body, destination) {
@@ -332,17 +336,39 @@ async function copyRemotePage(vault, client, page, trail, body, destination) {
   const id = numericId(page.id);
   const version = page.version.number;
   const url = client.pageUrl(id);
-  const links = attachmentLinks(client, await client.attachments(id), url);
+  const attachments = await client.attachments(id);
+  const inventory = attachmentInventory(attachments);
+  const seen = new Set();
+  if (inventory.some(asset => asset.size > MAX_ATTACHMENT_BYTES)) {
+    throw new Error("A Confluence attachment exceeds the 25 MiB limit for " + page.title + ".");
+  }
+  await makeVaultFolders(vault, directory, client.config.inbox);
+  if (attachments.length) await makeVaultFolders(vault, directory + "/Attachments", client.config.inbox);
+  const links = new Map();
+  for (const attachment of attachments) {
+    const entry = attachmentEntry(attachment);
+    if (seen.has(entry.title)) throw new Error("Confluence returned duplicate attachment names.");
+    seen.add(entry.title);
+    const name = attachmentName(entry);
+    const path = directory + "/Attachments/" + name;
+    const data = await client.downloadAttachment(id, attachment);
+    const prior = vault.getFileByPath(path);
+    if (!prior) await vault.createBinary(path, data);
+    else if (await digest(await vault.readBinary(prior)) !== await digest(data)) {
+      throw new Error("An existing local attachment has different content: " + name);
+    }
+    links.set(entry.title, { path: "Attachments/" + encodeURIComponent(name), image: IMAGE_FILE.test(entry.title) });
+  }
   const markdown = "# " + markdownText(page.title) + "\n\n[Confluence · version " + version + "](" + url + ")\n\n" +
     fromStorage(body, url, links) + (links.size ? "\n## Confluence attachments\n\n" +
-      Array.from(links, ([title, link]) => "- [" + markdownText(title) + "](<" + link + ">)").join("\n") + "\n" : "");
-  await makeVaultFolders(vault, directory, client.config.inbox);
+      Array.from(links, ([title, link]) => "- [" + markdownText(title) + "](<" + link.path + ">)").join("\n") + "\n" : "");
   const path = directory + "/v" + version + ".md";
   const existing = vault.getFileByPath(path);
   if (existing && await vault.read(existing) !== markdown) {
     throw new Error("An existing local file has different contents: " + path);
   }
-  return existing ?? await vault.create(path, markdown);
+  const file = existing ?? await vault.create(path, markdown);
+  return { file, inventory };
 }
 
 async function remotePages(client, catalog) {
@@ -366,11 +392,12 @@ async function downloadSnapshot(vault, client, remote, selectedId) {
   try {
     for (const [id, page] of selection) {
       const body = await checkedBody(client, page);
-      copies.push(await copyRemotePage(vault, client, page, remote.trails.get(id), body, destination));
+      const copy = await copyRemotePage(vault, client, page, remote.trails.get(id), body, destination);
+      copies.push(copy.file);
     }
   } catch (error) {
-    const saved = copies.length ? " " + copies.length + " saved under " + destination + "." : "";
-    throw new Error("Snapshot stopped. " + error.message + saved);
+    throw new Error("Snapshot stopped after " + copies.length + " copies. " + error.message +
+      " Check " + destination + " for saved files.");
   }
   const summary = copies.length + " current " + (copies.length === 1 ? "copy saved" : "copies saved");
   if (copies.length === 1) return { file: copies[0], summary };
@@ -391,6 +418,17 @@ async function incoming(app, client, catalog, profile, save, importNew) {
   let newCount = 0;
   let changedCount = 0;
   let importedCount = 0;
+  let baselines = 0;
+  const remoteAttachments = new Map();
+  if (!importNew) {
+    const trackedIds = Array.from(pages.keys()).filter(id => linked.has(id) || profile.imports[id]);
+    for (let start = 0; start < trackedIds.length; start += 4) {
+      const batch = trackedIds.slice(start, start + 4);
+      await Promise.all(batch.map(async id => {
+        remoteAttachments.set(id, attachmentInventory(await client.attachments(id)));
+      }));
+    }
+  }
   for (const [id, page] of pages) {
     const local = linked.get(id) ?? profile.imports[id];
     const label = "[" + markdownText(page.title) + "](" + client.pageUrl(id) + ")";
@@ -398,10 +436,10 @@ async function incoming(app, client, catalog, profile, save, importNew) {
       newCount++;
       if (importNew) {
         const body = await checkedBody(client, page);
-        const file = await copyRemotePage(app.vault, client, page, trails.get(id), body,
+        const copy = await copyRemotePage(app.vault, client, page, trails.get(id), body,
           client.config.inbox + "/Imported pages");
-        profile.imports[id] = { path: file.path, version: page.version.number, title: page.title,
-          parent: String(page.parentId) };
+        profile.imports[id] = { path: copy.file.path, version: page.version.number, title: page.title,
+          parent: String(page.parentId), remoteAttachments: copy.inventory };
         await save();
         importedCount++;
       }
@@ -411,7 +449,18 @@ async function incoming(app, client, catalog, profile, save, importNew) {
     const version = page.version.number;
     const moved = String(page.parentId) !== local.parent;
     const renamed = page.title !== local.title;
-    if (version === local.version && !moved && !renamed) continue;
+    const inventory = remoteAttachments.get(id);
+    let fileChanges = [];
+    if (inventory) {
+      if (local.remoteAttachments) {
+        fileChanges = attachmentDiff(local.remoteAttachments, inventory);
+      } else {
+        const entry = linked.has(id) ? profile.pages["file:" + local.path] : profile.imports[id];
+        entry.remoteAttachments = inventory;
+        baselines++;
+      }
+    }
+    if (version === local.version && !moved && !renamed && !fileChanges.length) continue;
     changedCount++;
     if (importNew) continue;
     const details = ["### " + label, "- Confluence version " + local.version + " → " + version,
@@ -422,6 +471,10 @@ async function incoming(app, client, catalog, profile, save, importNew) {
     if (both) details.push("- Both the local note and the Confluence page changed.");
     if (moved) details.push("- The Confluence parent changed.");
     if (renamed) details.push("- The Confluence title changed.");
+    for (const file of fileChanges) {
+      const versionLabel = file.before ? "v" + file.before + " → v" + file.version : "v" + file.version;
+      details.push("- Attachment " + file.kind.toLowerCase() + " · " + markdownText(file.title) + " · " + versionLabel);
+    }
     if (version !== local.version) {
       const url = client.pageUrl(id);
       const latest = fromStorage(await checkedBody(client, page), url);
@@ -445,8 +498,12 @@ async function incoming(app, client, catalog, profile, save, importNew) {
   const date = new Date().toISOString().replace(/[:.]/g, "-");
   const path = client.config.inbox + "/" + title + " " + date + " " + crypto.randomUUID().slice(0, 8) + ".md";
   const instructions = importNew ?
-    "New pages are saved under Imported pages. Attachment links open in Confluence." :
+    "New pages and their attachments are saved under Imported pages." :
     "Review the differences and copy the changes you want to incorporate into the original note.";
+  if (baselines) {
+    await save();
+    changes.unshift("Recorded current attachment versions for " + baselines + " previously tracked pages.");
+  }
   await makeVaultFolders(app.vault, client.config.inbox, client.config.inbox);
   const file = await app.vault.create(path, "# " + title + "\n\n" + summary + "\n\n" + instructions +
     (changes.length ? "\n\n" + changes.join("\n\n") : "") + "\n");

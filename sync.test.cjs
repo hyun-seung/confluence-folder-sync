@@ -4,7 +4,8 @@ const assert = require("node:assert/strict");
 
 const fromBundle = new Function("require", "module",
   readFileSync("main.js", "utf8") + "\nreturn { validatedConfig, vaultPath, markdownLines, toStorage, " +
-  "ConfluenceCloud, Publisher, preparedNotes, pageTrails, digest, lineChange, attachmentLinks, fromStorage };");
+  "ConfluenceCloud, Publisher, preparedNotes, pageTrails, digest, lineChange, fromStorage, " +
+  "attachmentInventory, attachmentDiff, reviewHunks, matchHunk, mergeSelected, applyLocalReview };");
 const fakeModule = { exports: {} };
 const lib = fromBundle(() => ({ Plugin: class {}, PluginSettingTab: class {}, Modal: class {} }), fakeModule);
 const fixtureConfig = {
@@ -103,7 +104,8 @@ function memoryCloud(config) {
     upload: async (id, asset) => {
       const items = files.get(id) ?? [];
       assert.ok(!items.some(item => item.title === asset.name));
-      items.push({ title: asset.name, comment: asset.hash, fileSize: asset.data.byteLength });
+      items.push({ id: "att" + String(900 + stats.uploads), title: asset.name, comment: asset.hash,
+        fileSize: asset.data.byteLength, version: { number: 1 } });
       files.set(id, items);
       stats.uploads++;
     },
@@ -181,5 +183,104 @@ test("version differences keep unchanged middle lines when there are separate ed
   const after = "begin\nnew first\nunchanged between\nnew second\nend";
   assert.match(lib.lineChange(before, after), /-old first\n\+new first\n unchanged between\n-old second\n\+new second/);
   assert.match(lib.lineChange(before, before), /No converted Markdown body difference/);
+});
+
+
+test("pinned attachment download carries credentials only to the Atlassian API", async () => {
+  const config = lib.validatedConfig(fixtureConfig);
+  const client = new lib.ConfluenceCloud(config, "dummy-token");
+  client.gateway = "https://api.atlassian.com/ex/confluence/fixture";
+  const attachment = { id: "att122", title: "fixture.txt", fileSize: 3, version: { number: 2 } };
+  const calls = [];
+  const data = await client.downloadAttachment("400", attachment, async (url, headers, bytes) => {
+    calls.push({ url, headers, bytes });
+    if (calls.length === 1) return { status: 302, location: "https://api.media.atlassian.com/file/token" };
+    return { status: 200, data: new Uint8Array([1, 2, 3]).buffer };
+  });
+  assert.deepEqual(Array.from(new Uint8Array(data)), [1, 2, 3]);
+  assert.match(calls[0].url, /\/content\/400\/child\/attachment\/att122\/download\?version=2$/);
+  assert.match(calls[0].headers.Authorization, /^Basic /);
+  assert.deepEqual(calls[1].headers, {});
+  assert.equal(calls[1].bytes, 3);
+
+  let unsafeCalls = 0;
+  await assert.rejects(client.downloadAttachment("400", attachment, async () => {
+    unsafeCalls++;
+    return { status: 302, location: "https://api.media.atlassian.com.example.test/file" };
+  }), /unexpected attachment download host/);
+  assert.equal(unsafeCalls, 1);
+});
+
+test("attachment inventory detects add, edit, rename and removal independent of page versions", () => {
+  const asset = (id, title, number) => ({ id: "att" + id, title, version: { number }, fileSize: 3 });
+  const before = lib.attachmentInventory([asset("1", "a.txt", 1), asset("2", "b.txt", 1), asset("3", "c.txt", 1)]);
+  const after = lib.attachmentInventory([asset("1", "a.txt", 2), asset("2", "renamed.txt", 1), asset("4", "d.txt", 1)]);
+  assert.deepEqual(lib.attachmentDiff(before, after).map(change => [change.kind, change.title]), [
+    ["Changed", "a.txt"], ["Changed", "renamed.txt"], ["Added", "d.txt"], ["Removed", "c.txt"],
+  ]);
+  assert.deepEqual(lib.attachmentDiff(after, after), []);
+});
+
+test("review applies only matching selected hunks and rejects ambiguous and stale locations", () => {
+  const old = "Intro\nold A\nMiddle\nunchanged\nold B\nTail";
+  const current = "Intro\nnew A\nMiddle\nunchanged\nnew B\nTail";
+  const material = "Intro\r\nold A\r\nMiddle\r\nunchanged\r\nold B\r\nTail\r\nMy edit\r\n";
+  const hunks = lib.reviewHunks(old, current);
+  const local = material.split("\r\n");
+  assert.equal(hunks.length, 2);
+  const selected = { ...hunks[0], at: lib.matchHunk(local, hunks[0]) };
+  assert.equal(selected.at, 1);
+  assert.equal(lib.mergeSelected(material, [selected]), material.replace("old A", "new A"));
+  assert.equal(lib.matchHunk(["Intro", "old A", "Middle", "Intro", "old A", "Middle"], hunks[0]), null);
+  assert.throws(() => lib.mergeSelected("Intro\nnewer local line\nMiddle", [selected]), /no longer match/);
+  assert.throws(() => lib.mergeSelected("Intro\r\nold A\nMiddle", [selected]), /mixed line endings/);
+  const add = lib.reviewHunks("Intro\n\nTail", "Intro\n\naddition\n\nTail")[0];
+  assert.equal(lib.matchHunk(["Intro", "", "Tail"], add), 1);
+});
+
+test("confirmed local review backs up the original and rechecks remote and local revisions", async () => {
+  const original = "Intro\nold A\nTail\n";
+  const source = "Docs/Test.md";
+  const file = { path: source, extension: "md" };
+  const storage = new Map([[source, original]]);
+  const folders = new Set(["Docs"]);
+  const app = {
+    vault: {
+      getFolderByPath: path => folders.has(path),
+      getAbstractFileByPath: path => storage.has(path),
+      getFileByPath: path => storage.has(path) ? file : null,
+      createFolder: async path => folders.add(path),
+      create: async (path, data) => storage.set(path, data),
+      read: async handle => storage.get(handle.path),
+      process: async (handle, change) => storage.set(handle.path, change(storage.get(handle.path))),
+    },
+    workspace: { getLeavesOfType: () => [] },
+  };
+  const page = { id: "400", spaceId: "80", parentId: "100", status: "current", version: { number: 4 } };
+  const storageBody = "<p>fixture</p>";
+  let recheck = 4;
+  const client = {
+    config: { origin: "https://example.atlassian.net", folderId: "100", source: "Docs", inbox: "Incoming" },
+    spaceId: "80",
+    page: async (_id, _version, body) => body
+      ? { ...page, body: { storage: { value: storageBody } } }
+      : { ...page, version: { number: recheck } },
+  };
+  const profile = { pages: { "file:Docs/Test.md": { id: "400", version: 3, bodyHash: "base" } } };
+  const review = {
+    id: "400", path: source, original, baseVersion: 3, version: 4, bodyHash: await lib.digest(storageBody),
+    origin: client.config.origin, folderId: "100", hunks: [{ at: 1, remove: ["old A"], insert: ["new A"] }],
+  };
+  recheck = 5;
+  await assert.rejects(lib.applyLocalReview(app, client, profile, page, review, [0]), /changed while preparing/);
+  assert.equal(storage.get(source), original);
+  recheck = 4;
+  const result = await lib.applyLocalReview(app, client, profile, page, review, [0]);
+  assert.equal(result.count, 1);
+  assert.ok(result.backup.startsWith("Incoming/Backups/"));
+  assert.equal(storage.get(result.backup), original);
+  assert.equal(storage.get(source), original.replace("old A", "new A"));
+  assert.equal(profile.pages["file:Docs/Test.md"].version, 3);
+  await assert.rejects(lib.applyLocalReview(app, client, profile, page, review, [0]), /local note changed after review/);
 });
 
