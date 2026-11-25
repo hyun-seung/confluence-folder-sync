@@ -704,7 +704,11 @@ async function preparedNotes(app, config) {
       }
       assets.set(target.file.path, asset);
     }
-    notes.push({ file, title, units, assets, sourceHash: await digest(source) });
+    const sourceHash = await digest(source);
+    const assetHashes = Array.from(assets, ([path, asset]) => [path, asset.hash])
+      .sort(([left], [right]) => left.localeCompare(right));
+    const inputHash = await digest(JSON.stringify([sourceHash, assetHashes]));
+    notes.push({ file, title, units, assets, sourceHash, inputHash });
   }
   return { notes, folders: Array.from(folders).sort((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b)) };
 }
@@ -859,8 +863,10 @@ class Publisher {
         entry.bodyHash = entry.pending.bodyHash;
         entry.sourceHash = entry.pending.sourceHash;
         delete entry.pending;
+        delete entry.migratedInputHash;
         await this.save();
       }
+      if (entry.migratedInputHash === note.inputHash) continue;
       const body = resolvedStorage(note, this.app, this.client, ids);
       const bodyHash = await digest(body);
       if (bodyHash === entry.bodyHash) {
@@ -903,6 +909,7 @@ class Publisher {
       entry.bodyHash = bodyHash;
       entry.sourceHash = note.sourceHash;
       delete entry.pending;
+      delete entry.migratedInputHash;
       await this.save();
       changed++;
     }

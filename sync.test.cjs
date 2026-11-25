@@ -284,3 +284,28 @@ test("confirmed local review backs up the original and rechecks remote and local
   await assert.rejects(lib.applyLocalReview(app, client, profile, page, review, [0]), /local note changed after review/);
 });
 
+
+test("a migrated baseline preserves unchanged formatter output but publishes later source edits", async () => {
+  const config = lib.validatedConfig(fixtureConfig);
+  const remote = memoryCloud(config);
+  const file = { path: "Docs/Legacy.md", basename: "Legacy", extension: "md" };
+  let text = "# Legacy\n\nOriginal";
+  const app = {
+    vault: { getFolderByPath: () => ({}), getMarkdownFiles: () => [file], read: async () => text },
+    metadataCache: { getFirstLinkpathDest: () => null },
+  };
+  const page = await remote.create("page", "Legacy", "100", "<p>Earlier formatter with diagram</p>");
+  const tree = await lib.preparedNotes(app, config);
+  const entry = { id: page.id, ticket: "migration", version: 1, bodyHash: "different format",
+    sourceHash: tree.notes[0].sourceHash, migratedInputHash: tree.notes[0].inputHash, remoteAttachments: [] };
+  const state = { folders: {}, pages: { "file:Docs/Legacy.md": entry } };
+  const publisher = new lib.Publisher(remote, app, state, async () => {});
+  const catalog = new Map(remote.records);
+  await publisher.plan(tree, catalog);
+  assert.equal(await publisher.publish(tree, catalog), 0);
+  assert.equal(remote.stats.updates, 0);
+  text += "\n\nChanged source";
+  assert.equal(await publisher.publish(await lib.preparedNotes(app, config), catalog), 1);
+  assert.equal(entry.migratedInputHash, undefined);
+});
+
