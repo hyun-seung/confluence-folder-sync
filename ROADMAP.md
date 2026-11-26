@@ -2,7 +2,7 @@
 
 English · [한국어](ROADMAP.ko.md) · [Usage guide](README.md)
 
-Current release: **0.6.2** (scoped source traversal, CI and attested release packaging). This document proposes the next work; the items below are not implemented or scheduled. Version 0.6.0 adds verified reconnection, source-root migration and completed-operation recovery to selective publication, text conflict resolution, tracked local moves, operation history and guarded backup restoration, and optional automatic checks/publication. See [CHANGELOG.md](CHANGELOG.md) for delivered work.
+Current release: **0.6.3** (explicit conflict-modal styling and a dependency-free build lockfile; scoped traversal and attested releases from 0.6.2). This document proposes the next work; the items below are not implemented or scheduled. Version 0.6.0 adds verified reconnection, source-root migration and completed-operation recovery to selective publication, text conflict resolution, tracked local moves, operation history and guarded backup restoration, and optional automatic checks/publication. See [CHANGELOG.md](CHANGELOG.md) for delivered work.
 
 ## Recommended order
 
@@ -18,12 +18,12 @@ Mapping and recovery management shipped in 0.6.0 with conservative recovery chec
 
 ## Community directory preparation
 
-The [official submission guide](https://docs.obsidian.md/plugins/releasing/submit-plugin) is the source for directory requirements. This repository currently has public source, bilingual usage guides, a manifest and a matching 0.6.2 GitHub release. Still to do:
+The [official submission guide](https://docs.obsidian.md/plugins/releasing/submit-plugin) is the source for directory requirements. This repository currently has public source, bilingual usage guides, a manifest and a matching 0.6.3 GitHub release. Still to do:
 
 - MIT licensing is complete: the repository and installation ZIP include `LICENSE`.
 - The initial submission accepted the ID/name and created the [official listing](https://community.obsidian.md/plugins/confluence-folder-sync) on 2026-11-26.
 - Complete the project's platform verification and public test/packaging work above.
-- Submission and publication are complete. Automated review was still running at the submission checkpoint; monitor the official listing and address blocking findings before treating installation as available.
+- Submission and publication are complete. Automated review of 0.6.2 completed, including successful artifact attestations; monitor the official listing for subsequent versions and review findings.
 
 Cross-platform checks are this project's readiness goal; directory acceptance depends on the official requirements and review.
 
@@ -36,3 +36,5 @@ Maintain the current boundaries while adding features: explicit destination/scop
 ## Initial directory review checkpoint
 
 The submitted 0.6.1 release has no vulnerable dependencies reported. Initial recommendations cover missing GitHub artifact attestations, whole-vault path enumeration, and extra release assets. The installation ZIP and checksum file are intentional manual-install downloads; Obsidian itself downloads only the standard runtime assets. The scan was incomplete at this checkpoint, so recommendations do not constitute final acceptance or an installation guarantee.
+
+The 0.6.2 review completed and no longer reported missing attestations or vault-wide enumeration. It flagged a CSS `:has` performance warning and could not attempt independent build verification without a lockfile. Version 0.6.3 addresses these two items; the official listing remains the source for the current review outcome. The extra ZIP/checksum recommendation is intentional for manual installation.

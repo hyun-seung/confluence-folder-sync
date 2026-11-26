@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.3
+
+- Replace the conflict dialog's CSS `:has` selector with a class attached to that modal only; remove the class when the dialog closes and retain the same width and responsive columns.
+- Commit the dependency-free npm lockfile, use offline `npm ci` in CI/release jobs, and reject a missing or mismatched lockfile during packaging.
+- CSS 성능 경고를 명시적 모달 클래스로 정리하고 의존성 없는 lockfile로 독립 빌드 검증을 준비했습니다. 동기화 범위와 발행 동작은 유지합니다.
+
 ## 0.6.2
 
 - Enumerate Markdown through the selected source folder's children instead of the vault-wide file registry. Exclude hidden branches and hidden attachment targets; reject malformed or changed hierarchies before publication.

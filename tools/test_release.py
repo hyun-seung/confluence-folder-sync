@@ -18,7 +18,10 @@ class PackagingTests(unittest.TestCase):
             (self.root / name).write_text('Synthetic public ' + name, encoding='utf-8')
         (self.root / 'manifest.json').write_text(json.dumps({'id': 'confluence-fixture', 'version': '1.2.3',
             'minAppVersion': '1.14.0', 'isDesktopOnly': True, 'description': 'Publish notes.'}), encoding='utf-8')
-        (self.root / 'package.json').write_text(json.dumps({'version': '1.2.3', 'license': 'MIT'}), encoding='utf-8')
+        (self.root / 'package.json').write_text(json.dumps({'name': 'confluence-fixture', 'version': '1.2.3', 'license': 'MIT'}), encoding='utf-8')
+        (self.root / 'package-lock.json').write_text(json.dumps({'name': 'confluence-fixture',
+            'version': '1.2.3', 'lockfileVersion': 3,
+            'packages': {'': {'name': 'confluence-fixture', 'version': '1.2.3'}}}), encoding='utf-8')
         (self.root / 'versions.json').write_text(json.dumps({'1.2.3': '1.14.0'}), encoding='utf-8')
         (self.root / 'LICENSE').write_text('MIT License\nSynthetic fixture.', encoding='utf-8')
 
@@ -50,6 +53,24 @@ class PackagingTests(unittest.TestCase):
         target = self.base / 'private'
         target.write_text('MIT License\nPRIVATE FIXTURE', encoding='utf-8')
         (self.root / 'LICENSE').symlink_to(target)
+        with self.assertRaises(ValueError):
+            package_release(self.root, '1.2.3', self.base / 'invalid')
+
+    def test_missing_or_outdated_lockfile_blocks_packaging(self):
+        file = self.root / 'package-lock.json'
+        original = json.loads(file.read_text())
+        for change in ('version', 'root-version', 'root-name'):
+            lock = json.loads(json.dumps(original))
+            if change == 'version':
+                lock['version'] = '1.2.2'
+            elif change == 'root-version':
+                lock['packages']['']['version'] = '1.2.2'
+            else:
+                lock['packages']['']['name'] = 'another-package'
+            file.write_text(json.dumps(lock), encoding='utf-8')
+            with self.assertRaises(ValueError):
+                package_release(self.root, '1.2.3', self.base / 'invalid')
+        file.unlink()
         with self.assertRaises(ValueError):
             package_release(self.root, '1.2.3', self.base / 'invalid')
 

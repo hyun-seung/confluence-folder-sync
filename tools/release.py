@@ -11,15 +11,20 @@ SEMVER = r'(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)'
 
 
 def metadata(root, tag):
-    for name in FILES + ('package.json', 'versions.json'):
+    for name in FILES + ('package.json', 'package-lock.json', 'versions.json'):
         file = root / name
         if file.is_symlink() or not file.is_file() or not file.read_bytes():
             raise ValueError('Missing, empty or symlinked public release file: ' + name)
     manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
     package = json.loads((root / 'package.json').read_text(encoding='utf-8'))
     versions = json.loads((root / 'versions.json').read_text(encoding='utf-8'))
+    lock = json.loads((root / 'package-lock.json').read_text(encoding='utf-8'))
     if not re.fullmatch(SEMVER, tag or '') or manifest.get('version') != tag or package.get('version') != tag:
         raise ValueError('The exact semantic tag must match manifest.json and package.json')
+    locked_root = lock.get('packages', {}).get('', {})
+    if lock.get('lockfileVersion') != 3 or lock.get('version') != tag or locked_root.get('version') != tag or \
+            lock.get('name') != package.get('name') or locked_root.get('name') != package.get('name'):
+        raise ValueError('package-lock.json must match the package name and release version')
     plugin_id = manifest.get('id', '')
     if not re.fullmatch(r'[a-z][a-z0-9-]*', plugin_id) or 'obsidian' in plugin_id or plugin_id.endswith('plugin'):
         raise ValueError('Invalid plugin ID')

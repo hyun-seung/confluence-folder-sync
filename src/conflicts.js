@@ -87,12 +87,14 @@ class ConflictModal extends Modal {
 
   onOpen() {
     this.opened = true;
+    this.modalEl.classList.add("cfs-conflict-modal");
     this.contentEl.addClass("cfs-conflict");
     this.render();
   }
 
   onClose() {
     this.opened = false;
+    this.modalEl.classList.remove("cfs-conflict-modal");
     this.contentEl.empty();
   }
 

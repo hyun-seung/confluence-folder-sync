@@ -22,7 +22,7 @@
   gap: var(--size-4-2);
 }
 
-.modal:has(.cfs-conflict) {
+.modal.cfs-conflict-modal {
   width: min(1100px, 92vw);
   max-width: 92vw;
 }
