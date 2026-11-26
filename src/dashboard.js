@@ -206,7 +206,7 @@ class SyncDashboard extends Modal {
     return this.selected("Comparing page versions…", async (client, page) => {
       if (before === after) throw new Error("Choose two different versions.");
       const url = client.pageUrl(page.id);
-      const [oldBody, newBody] = await Promise.all([checkedBody(client, page, before), checkedBody(client, page, after)]);
+      const [oldBody, newBody] = await mapConcurrent([before, after], version => checkedBody(client, page, version));
       const diff = diffLines(fromStorage(oldBody, url), fromStorage(newBody, url));
       this.difference = { title: page.title + " · v" + before + " → v" + after,
         text: diff || this.t("No converted Markdown body difference.") };

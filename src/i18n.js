@@ -1,5 +1,8 @@
 // English messages are stable translation keys. Interpolate values only after lookup.
 const KOREAN = {
+  "Confluence request waiting timed out. Run the command again.": "Confluence 요청 대기 시간이 초과되었습니다. 명령을 다시 실행하세요.",
+  "Confluence is temporarily limiting requests. Retry this command in at least {seconds} seconds.": "Confluence 요청이 일시적으로 제한되었습니다. 최소 {seconds}초 뒤에 명령을 다시 실행하세요.",
+  "Confluence is busy. Waiting {seconds} seconds before retrying a read.": "Confluence가 혼잡합니다. {seconds}초 대기한 뒤 읽기 요청을 재시도합니다.",
   "The source folder hierarchy changed. Reload the review.": "원본 폴더 계층이 변경되었습니다. 검토 목록을 다시 불러오세요.",
   "Connections and recovery": "연결·복구 관리",
   "Manage connections": "연결 관리",

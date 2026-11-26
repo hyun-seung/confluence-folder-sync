@@ -580,12 +580,9 @@ async function incoming(app, client, catalog, profile, save, importNew) {
   const remoteAttachments = new Map();
   if (!importNew) {
     const trackedIds = Array.from(pages.keys()).filter(id => linked.has(id) || profile.imports[id]);
-    for (let start = 0; start < trackedIds.length; start += 4) {
-      const batch = trackedIds.slice(start, start + 4);
-      await Promise.all(batch.map(async id => {
-        remoteAttachments.set(id, attachmentInventory(await client.attachments(id)));
-      }));
-    }
+    await mapConcurrent(trackedIds, async id => {
+      remoteAttachments.set(id, attachmentInventory(await client.attachments(id)));
+    });
   }
   for (const [id, page] of pages) {
     const local = linked.get(id) ?? profile.imports[id];

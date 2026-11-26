@@ -236,7 +236,17 @@ class ConfluenceFolderSync extends Plugin {
       const config = validatedConfig({ ...this.data.settings, language: this.language });
       const token = this.app.secretStorage.getSecret(config.secretId);
       if (!token) throw new Error("Choose a valid token in the plugin settings.");
-      const client = new ConfluenceCloud(config, token);
+      const client = new ConfluenceCloud(config, token, requestUrl, {
+        check: () => {
+          if (this.unloaded) {
+            const error = new Error("The operation was cancelled. Completed changes are preserved.");
+            error.name = "AbortError";
+            throw error;
+          }
+        },
+        onWait: milliseconds => new Notice(this.t("Confluence is busy. Waiting {seconds} seconds before retrying a read.",
+          { seconds: Math.ceil(milliseconds / 1000) }), 5000),
+      });
       const folder = await client.connect();
       const key = publicationTarget(config);
       const profile = this.data.profiles[key] ??= { folders: {}, pages: {}, imports: {} };

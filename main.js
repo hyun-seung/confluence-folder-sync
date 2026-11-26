@@ -2,6 +2,9 @@
 
 // English messages are stable translation keys. Interpolate values only after lookup.
 const KOREAN = {
+  "Confluence request waiting timed out. Run the command again.": "Confluence 요청 대기 시간이 초과되었습니다. 명령을 다시 실행하세요.",
+  "Confluence is temporarily limiting requests. Retry this command in at least {seconds} seconds.": "Confluence 요청이 일시적으로 제한되었습니다. 최소 {seconds}초 뒤에 명령을 다시 실행하세요.",
+  "Confluence is busy. Waiting {seconds} seconds before retrying a read.": "Confluence가 혼잡합니다. {seconds}초 대기한 뒤 읽기 요청을 재시도합니다.",
   "The source folder hierarchy changed. Reload the review.": "원본 폴더 계층이 변경되었습니다. 검토 목록을 다시 불러오세요.",
   "Connections and recovery": "연결·복구 관리",
   "Manage connections": "연결 관리",
@@ -323,6 +326,86 @@ function localizedError(error, language) {
   return translate(language, error instanceof Error ? error.message : "The operation failed.");
 }
 
+const REQUEST_CONCURRENCY = 4;
+const RETRY_WAIT_BUDGET = 60_000;
+
+async function mapConcurrent(items, visit, limit = REQUEST_CONCURRENCY) {
+  const results = new Array(items.length);
+  let next = 0;
+  let failed = false;
+  let failure;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (!failed && next < items.length) {
+      const index = next++;
+      try { results[index] = await visit(items[index], index); }
+      catch (error) { if (!failed) { failed = true; failure = error; } }
+    }
+  }));
+  if (failed) throw failure;
+  return results;
+}
+
+function retryAfterMilliseconds(headers, now) {
+  const value = Object.entries(headers ?? {}).find(([key]) => key.toLowerCase() === "retry-after")?.[1];
+  if (value === undefined || String(value).trim() === "") return null;
+  const text = String(value).trim();
+  if (/^\d+(?:\.\d+)?$/.test(text)) {
+    const milliseconds = Number(text) * 1000;
+    return Number.isFinite(milliseconds) ? milliseconds : null;
+  }
+  if (!/^[A-Za-z]{3}, /.test(text)) return null;
+  const date = Date.parse(text);
+  return Number.isFinite(date) ? Math.max(0, date - now) : null;
+}
+
+class RetryWaitError extends SyncError {
+  constructor(milliseconds) {
+    super("Confluence is temporarily limiting requests. Retry this command in at least {seconds} seconds.",
+      { seconds: Math.ceil(milliseconds / 1000) });
+  }
+}
+
+class RequestQueue {
+  constructor(timing = {}) {
+    this.now = timing.now ?? Date.now;
+    this.sleep = timing.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
+    this.active = 0;
+    this.queue = [];
+    this.blockedUntil = 0;
+  }
+
+  defer(milliseconds) {
+    this.blockedUntil = Math.max(this.blockedUntil, this.now() + milliseconds);
+  }
+
+  drain() {
+    while (this.active < REQUEST_CONCURRENCY && this.queue.length) {
+      this.active++;
+      this.queue.shift()();
+    }
+  }
+
+  async run(task, check, deadline) {
+    await new Promise(resolve => { this.queue.push(resolve); this.drain(); });
+    try {
+      for (;;) {
+        await check?.();
+        if (this.now() >= deadline) throw new SyncError("Confluence request waiting timed out. Run the command again.");
+        const remaining = this.blockedUntil - this.now();
+        if (remaining <= 0) break;
+        if (this.now() + remaining > deadline) throw new RetryWaitError(remaining);
+        // Poll cancellation during backoff; never shorten the server's requested delay.
+        await this.sleep(Math.min(250, remaining));
+      }
+      await check?.();
+      return await task();
+    } finally {
+      this.active--;
+      this.drain();
+    }
+  }
+}
+
 const { Plugin, PluginSettingTab, Setting, SecretComponent, Notice, Modal, requestUrl, getLanguage } = require("obsidian");
 
 const DESCENDANTS_DEPTH = 10;
@@ -462,16 +545,20 @@ function binaryGet(url, headers, expectedBytes) {
 }
 
 class ConfluenceCloud {
-  constructor(config, token, request = requestUrl) {
+  constructor(config, token, request = requestUrl, timing = {}) {
     this.config = config;
     this.request = request;
+    this.requests = new RequestQueue(timing);
+    this.random = timing.random ?? Math.random;
+    this.check = timing.check;
+    this.onWait = timing.onWait;
     this.auth = "Basic " + btoa(String.fromCharCode(...new TextEncoder().encode(config.email + ":" + token)));
   }
 
   async connect() {
-    const response = await this.request({
+    const response = await this.requests.run(() => this.request({
       url: this.config.origin + "/_edge/tenant_info", method: "GET", throw: false,
-    });
+    }), () => this.check?.(), this.requests.now() + RETRY_WAIT_BUDGET);
     if (response.status !== 200) throw new ApiError("tenant lookup", response.status);
     const id = response.json.cloudId;
     if (typeof id !== "string" || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id)) {
@@ -497,11 +584,26 @@ class ConfluenceCloud {
       body = JSON.stringify(options.json);
     }
     let response;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      response = await this.request({ url: this.gateway + path, method, headers, body, throw: false });
-      if (method !== "GET" || (response.status !== 429 && response.status !== 503) || attempt === 2) break;
-      const delay = Number(response.headers?.["retry-after"]) || 2;
-      await new Promise(resolve => setTimeout(resolve, 1000 * Math.min(10, Math.max(1, delay))));
+    const deadline = this.requests.now() + RETRY_WAIT_BUDGET;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      let retry = false;
+      response = await this.requests.run(async () => {
+        const result = await this.request({ url: this.gateway + path, method, headers, body, throw: false });
+        const retryAfter = retryAfterMilliseconds(result.headers, this.requests.now());
+        if (result.status === 429 || result.status === 503 && retryAfter !== null) {
+          const backoff = Math.min(30_000, 1000 * 2 ** attempt);
+          const delay = Math.max(backoff, retryAfter ?? 0) + Math.floor(this.random() * backoff * 0.2);
+          this.requests.defer(delay);
+          retry = method === "GET" && attempt < 3;
+          if (retry && this.requests.now() + delay <= deadline &&
+              (this.waitNoticeAt === undefined || this.requests.now() - this.waitNoticeAt >= 5000)) {
+            this.waitNoticeAt = this.requests.now();
+            this.onWait?.(delay);
+          }
+        }
+        return result;
+      }, () => this.check?.(), deadline);
+      if (!retry) break;
     }
     if (response.status < 200 || response.status >= 300) throw new ApiError(method, response.status);
     return response;
@@ -567,7 +669,7 @@ class ConfluenceCloud {
     return this.list(API + "/pages/" + numericId(id) + "/versions", { limit: 50 });
   }
 
-  async currentPages(ids) {
+  async currentPages(ids, { allowMissing = false } = {}) {
     const mapped = new Map();
     for (let i = 0; i < ids.length; i += 25) {
       const group = ids.slice(i, i + 25);
@@ -580,7 +682,7 @@ class ConfluenceCloud {
         mapped.set(id, page);
       }
     }
-    if (mapped.size !== ids.length) throw new Error("A page changed location or became inaccessible. Run the command again.");
+    if (!allowMissing && mapped.size !== ids.length) throw new Error("A page changed location or became inaccessible. Run the command again.");
     return mapped;
   }
 
@@ -652,6 +754,65 @@ class ConfluenceCloud {
   pageUrl(id) {
     return `${this.config.origin}/wiki/pages/viewpage.action?pageId=${numericId(id)}`;
   }
+}
+
+// One read-only review owns this cache. Never pass it to a writer or retain it across commands.
+class ReviewReads {
+  constructor(client) {
+    this.client = client;
+    this.config = client.config;
+    this.spaceId = client.spaceId;
+    this.cache = new Map();
+    this.metadata = new Map();
+  }
+
+  async check() { await this.client.check?.(); }
+
+  async read(method, args) {
+    await this.check();
+    const key = JSON.stringify([method, ...args]);
+    if (!this.cache.has(key)) this.cache.set(key, Promise.resolve().then(() => this.client[method](...args)));
+    return structuredClone(await this.cache.get(key));
+  }
+
+  async preloadPages(ids) {
+    const missing = [...new Set(ids)].filter(id => !this.metadata.has(id));
+    if (typeof this.client.currentPages !== "function") return;
+    const batches = [];
+    for (let start = 0; start < missing.length; start += 25) batches.push(missing.slice(start, start + 25));
+    await mapConcurrent(batches, async batch => {
+      await this.check();
+      try {
+        const pages = await this.client.currentPages(batch, { allowMissing: true });
+        for (const id of batch) this.metadata.set(id, pages.has(id) ? { page: structuredClone(pages.get(id)) } :
+          { error: new Error("A page changed location or became inaccessible. Run the command again.") });
+      } catch (error) {
+        if (error.name === "AbortError") throw error;
+        for (const id of batch) this.metadata.set(id, { error });
+      }
+    });
+  }
+
+  async page(id, version, readBody = false) {
+    await this.check();
+    if (version === undefined && !readBody && this.metadata.has(id)) {
+      const record = this.metadata.get(id);
+      if (record.error) throw record.error;
+      return structuredClone(record.page);
+    }
+    return this.read("page", [id, version, readBody]);
+  }
+
+  async currentPages(ids) {
+    await this.preloadPages(ids);
+    const pages = await mapConcurrent(ids, async id => [id, await this.page(id)]);
+    return new Map(pages);
+  }
+
+  get(path, params = {}) { return this.read("get", [path, params]); }
+  pageTitles(title) { return this.read("pageTitles", [title]); }
+  attachments(id) { return this.read("attachments", [id]); }
+  pageUrl(id) { return this.client.pageUrl(id); }
 }
 
 function xml(text) {
@@ -1550,12 +1711,9 @@ async function incoming(app, client, catalog, profile, save, importNew) {
   const remoteAttachments = new Map();
   if (!importNew) {
     const trackedIds = Array.from(pages.keys()).filter(id => linked.has(id) || profile.imports[id]);
-    for (let start = 0; start < trackedIds.length; start += 4) {
-      const batch = trackedIds.slice(start, start + 4);
-      await Promise.all(batch.map(async id => {
-        remoteAttachments.set(id, attachmentInventory(await client.attachments(id)));
-      }));
-    }
+    await mapConcurrent(trackedIds, async id => {
+      remoteAttachments.set(id, attachmentInventory(await client.attachments(id)));
+    });
   }
   for (const [id, page] of pages) {
     const local = linked.get(id) ?? profile.imports[id];
@@ -1825,6 +1983,9 @@ function selectionTree(tree, paths) {
 }
 
 async function publicationReview(app, client, profile, tree, catalog) {
+  client = client instanceof ReviewReads ? client : new ReviewReads(client);
+  await client.preloadPages(tree.notes.map(note => profile.pages["file:" + note.path]?.id)
+    .filter(id => id && catalog.has(id)));
   const config = client.config;
   const publisher = new Publisher(client, app, profile, async () => {});
   const folders = new Map([[config.source, { id: config.folderId }]]);
@@ -1842,8 +2003,8 @@ async function publicationReview(app, client, profile, tree, catalog) {
       folders.set(path, { error });
     }
   }
-  const rows = [];
-  for (const note of tree.notes) {
+  const rows = await mapConcurrent(tree.notes, async note => {
+    await client.check();
     const entry = profile.pages["file:" + note.path];
     const parent = folders.get(parentPath(note.path));
     const row = { path: note.path, inputHash: note.inputHash, title: note.title, id: entry?.id ?? null,
@@ -1870,11 +2031,12 @@ async function publicationReview(app, client, profile, tree, catalog) {
         entry.migratedInputHash === note.inputHash ||
         row.outputHash === entry.bodyHash ? "Unchanged" : "Changed";
     } catch (error) {
+      if (error.name === "AbortError") throw error;
       row.status = "Conflict";
       row.reason = localizedError(error, config.language);
     }
-    rows.push(row);
-  }
+    return row;
+  });
   for (const row of rows) row.fingerprint = await digest(JSON.stringify(row));
   return { target: publicationTarget(config), rows, source: config.source,
     destination: new URL(config.origin).hostname + " / " + config.folderId };
@@ -1885,9 +2047,10 @@ function checkedSelection(review, current, paths) {
   const selected = new Set(paths);
   if (!selected.size) throw new Error("Select at least one eligible note.");
   const ready = new Map(current.rows.map(row => [row.path, row]));
+  const previous = new Map(review.rows.map(row => [row.path, row]));
   for (const path of selected) {
     const row = ready.get(path);
-    const prior = review.rows.find(item => item.path === path);
+    const prior = previous.get(path);
     if (!prior || !row || !["New", "Changed"].includes(row.status) || row.fingerprint !== prior.fingerprint) {
       throw new Error("A selected note or page changed. Refresh the publication review.");
     }
@@ -1920,6 +2083,17 @@ async function checkPublicationInput(app, note, source) {
 }
 
 async function publishSelection(app, client, profile, save, review, paths, control = {}) {
+  const previousCheck = client.check;
+  client.check = async () => { await previousCheck?.(); await control.check?.(); };
+  try {
+    await client.check();
+    return await publishReviewedSelection(app, client, profile, save, review, paths, control);
+  } finally {
+    client.check = previousCheck;
+  }
+}
+
+async function publishReviewedSelection(app, client, profile, save, review, paths, control) {
   if (!client.config.allowPublish) throw new Error("Enable publishing in the plugin settings first.");
   const tree = await preparedNotes(app, client.config);
   tree.source = client.config.source;
@@ -2432,23 +2606,22 @@ class AutomaticSync {
       const result = await plugin.operation("Automatic check", async ({ client, profile, save }) => {
         const tree = await preparedNotes(plugin.app, client.config);
         const catalog = await client.catalog();
-        const review = await publicationReview(plugin.app, client, profile, tree, catalog);
-        const remote = await remotePages(client, catalog);
-        const known = new Set([...Object.values(profile.pages).map(entry => entry.id), ...Object.keys(profile.imports)]);
+        const reads = new ReviewReads(client);
+        const review = await publicationReview(plugin.app, reads, profile, tree, catalog);
+        const remote = await remotePages(reads, catalog);
+        const linked = new Map(Object.values(profile.pages).map(entry => [entry.id, entry]));
         const remoteChanges = new Set();
         const tracked = [];
         for (const [id, page] of remote.pages) {
-          const entry = Object.values(profile.pages).find(item => item.id === id) ?? profile.imports[id];
-          if (!known.has(id) || entry?.version !== page.version.number || entry?.title !== page.title ||
+          const entry = linked.get(id) ?? profile.imports[id];
+          if (!entry || entry.version !== page.version.number || entry.title !== page.title ||
               entry?.parent !== String(page.parentId)) remoteChanges.add(id);
           if (entry?.remoteAttachments) tracked.push([id, entry]);
         }
-        for (let start = 0; start < tracked.length; start += 4) {
-          await Promise.all(tracked.slice(start, start + 4).map(async ([id, entry]) => {
-            const inventory = attachmentInventory(await client.attachments(id));
-            if (attachmentDiff(entry.remoteAttachments, inventory).length) remoteChanges.add(id);
-          }));
-        }
+        await mapConcurrent(tracked, async ([id, entry]) => {
+          const inventory = attachmentInventory(await reads.attachments(id));
+          if (attachmentDiff(entry.remoteAttachments, inventory).length) remoteChanges.add(id);
+        });
         let published = 0;
         if (plugin.data.settings.autoPublish && plugin.data.settings.allowPublish) {
           const paths = automaticCandidates(review, profile, tree);
@@ -3102,7 +3275,7 @@ class SyncDashboard extends Modal {
     return this.selected("Comparing page versions…", async (client, page) => {
       if (before === after) throw new Error("Choose two different versions.");
       const url = client.pageUrl(page.id);
-      const [oldBody, newBody] = await Promise.all([checkedBody(client, page, before), checkedBody(client, page, after)]);
+      const [oldBody, newBody] = await mapConcurrent([before, after], version => checkedBody(client, page, version));
       const diff = diffLines(fromStorage(oldBody, url), fromStorage(newBody, url));
       this.difference = { title: page.title + " · v" + before + " → v" + after,
         text: diff || this.t("No converted Markdown body difference.") };
@@ -3417,7 +3590,17 @@ class ConfluenceFolderSync extends Plugin {
       const config = validatedConfig({ ...this.data.settings, language: this.language });
       const token = this.app.secretStorage.getSecret(config.secretId);
       if (!token) throw new Error("Choose a valid token in the plugin settings.");
-      const client = new ConfluenceCloud(config, token);
+      const client = new ConfluenceCloud(config, token, requestUrl, {
+        check: () => {
+          if (this.unloaded) {
+            const error = new Error("The operation was cancelled. Completed changes are preserved.");
+            error.name = "AbortError";
+            throw error;
+          }
+        },
+        onWait: milliseconds => new Notice(this.t("Confluence is busy. Waiting {seconds} seconds before retrying a read.",
+          { seconds: Math.ceil(milliseconds / 1000) }), 5000),
+      });
       const folder = await client.connect();
       const key = publicationTarget(config);
       const profile = this.data.profiles[key] ??= { folders: {}, pages: {}, imports: {} };

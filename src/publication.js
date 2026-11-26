@@ -27,6 +27,9 @@ function selectionTree(tree, paths) {
 }
 
 async function publicationReview(app, client, profile, tree, catalog) {
+  client = client instanceof ReviewReads ? client : new ReviewReads(client);
+  await client.preloadPages(tree.notes.map(note => profile.pages["file:" + note.path]?.id)
+    .filter(id => id && catalog.has(id)));
   const config = client.config;
   const publisher = new Publisher(client, app, profile, async () => {});
   const folders = new Map([[config.source, { id: config.folderId }]]);
@@ -44,8 +47,8 @@ async function publicationReview(app, client, profile, tree, catalog) {
       folders.set(path, { error });
     }
   }
-  const rows = [];
-  for (const note of tree.notes) {
+  const rows = await mapConcurrent(tree.notes, async note => {
+    await client.check();
     const entry = profile.pages["file:" + note.path];
     const parent = folders.get(parentPath(note.path));
     const row = { path: note.path, inputHash: note.inputHash, title: note.title, id: entry?.id ?? null,
@@ -72,11 +75,12 @@ async function publicationReview(app, client, profile, tree, catalog) {
         entry.migratedInputHash === note.inputHash ||
         row.outputHash === entry.bodyHash ? "Unchanged" : "Changed";
     } catch (error) {
+      if (error.name === "AbortError") throw error;
       row.status = "Conflict";
       row.reason = localizedError(error, config.language);
     }
-    rows.push(row);
-  }
+    return row;
+  });
   for (const row of rows) row.fingerprint = await digest(JSON.stringify(row));
   return { target: publicationTarget(config), rows, source: config.source,
     destination: new URL(config.origin).hostname + " / " + config.folderId };
@@ -87,9 +91,10 @@ function checkedSelection(review, current, paths) {
   const selected = new Set(paths);
   if (!selected.size) throw new Error("Select at least one eligible note.");
   const ready = new Map(current.rows.map(row => [row.path, row]));
+  const previous = new Map(review.rows.map(row => [row.path, row]));
   for (const path of selected) {
     const row = ready.get(path);
-    const prior = review.rows.find(item => item.path === path);
+    const prior = previous.get(path);
     if (!prior || !row || !["New", "Changed"].includes(row.status) || row.fingerprint !== prior.fingerprint) {
       throw new Error("A selected note or page changed. Refresh the publication review.");
     }
@@ -122,6 +127,17 @@ async function checkPublicationInput(app, note, source) {
 }
 
 async function publishSelection(app, client, profile, save, review, paths, control = {}) {
+  const previousCheck = client.check;
+  client.check = async () => { await previousCheck?.(); await control.check?.(); };
+  try {
+    await client.check();
+    return await publishReviewedSelection(app, client, profile, save, review, paths, control);
+  } finally {
+    client.check = previousCheck;
+  }
+}
+
+async function publishReviewedSelection(app, client, profile, save, review, paths, control) {
   if (!client.config.allowPublish) throw new Error("Enable publishing in the plugin settings first.");
   const tree = await preparedNotes(app, client.config);
   tree.source = client.config.source;

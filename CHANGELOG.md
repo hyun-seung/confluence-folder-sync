@@ -1,11 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.7.0
 
+- Batch mapped page metadata in groups of 25 and reuse page/attachment reads within one read-only check. Rebuild the read view for every review and retain direct fresh checks in all publication writes.
+- Bound API concurrency to four; retry GETs at most four attempts with exponential backoff/jitter, honor Retry-After without truncation, stop after the 60-second waiting deadline, and check cancellation during backoff. Never replay POST/PUT or unknown write responses.
+- Add a 1,000-note/110-folder synthetic comparison: 3,162 → 1,162 HTTP calls (63% fewer), with no remote writes. Simulated timings are not production throughput measurements.
+- 페이지 일괄 조회·검토 내 조회 재사용과 동시 요청 제한을 추가했습니다. 서버 대기 시간을 존중하며 쓰기 재전송과 오래된 검토 결과로의 발행을 막습니다.
 - Publish a portable synthetic UI harness with separate locked test dependencies: English/Korean at desktop and narrow viewport widths.
 - Add native Obsidian 1.14.5 checks with disposable profiles/vaults, pinned official Windows/Linux downloads, actual UI/Vault/SecretStorage APIs, restoration, binary imports, rename events and plugin reload.
-- Run all three OS browser/Node jobs and both native desktop jobs in CI; refuse unrelated vaults without closing their app instance. Keep runtime assets/version at 0.6.3.
-- 공개 UI 시험과 실제 Windows·Linux Obsidian의 합성 시험을 CI에 연결했습니다. 로컬 macOS에서도 검증했으며 원본 문서·설정·제품 실행 파일은 유지합니다.
+- Run all three OS browser/Node jobs and both native desktop jobs in CI; refuse unrelated vaults without closing their app instance. The native runner checks the same shipped runtime assets.
+- 공개 UI 시험과 실제 Windows·Linux Obsidian의 합성 시험을 CI에 연결했습니다. 로컬 macOS에서도 검증했으며 원본 문서·설정·인증·연결 상태를 유지합니다.
 
 ## 0.6.3
 

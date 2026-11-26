@@ -9,7 +9,7 @@ PC의 Obsidian 보관함과 Confluence Cloud를 연결하는 데스크톱 플러
 ## 설치
 
 1. [Releases](https://github.com/hyun-seung/confluence-folder-sync/releases)에서 최신 릴리스을 엽니다.
-2. [confluence-folder-sync-0.6.3.zip](https://github.com/hyun-seung/confluence-folder-sync/releases/download/0.6.3/confluence-folder-sync-0.6.3.zip)을 내려받고 압축을 풉니다. 안에 있는 `confluence-folder-sync` 폴더를 보관함의 `.obsidian/plugins/`에 넣습니다. macOS Finder에서는 `Command + Shift + .`으로 숨김 폴더를 표시할 수 있습니다.
+2. [confluence-folder-sync-0.7.0.zip](https://github.com/hyun-seung/confluence-folder-sync/releases/download/0.7.0/confluence-folder-sync-0.7.0.zip)을 내려받고 압축을 풉니다. 안에 있는 `confluence-folder-sync` 폴더를 보관함의 `.obsidian/plugins/`에 넣습니다. macOS Finder에서는 `Command + Shift + .`으로 숨김 폴더를 표시할 수 있습니다.
 3. 최종 경로가 `.obsidian/plugins/confluence-folder-sync/main.js`인지 확인합니다. 같은 폴더에 `manifest.json`과 `styles.css`도 있어야 합니다. ZIP 대신 릴리스의 개별 파일 3개를 직접 내려받아 같은 경로에 넣어도 됩니다.
 4. Obsidian의 **설정 → 커뮤니티 플러그인**에서 **Confluence Folder Sync**를 활성화합니다. Obsidian Desktop 1.14 이상이 필요합니다.
 
@@ -144,6 +144,8 @@ GitHub가 자동 생성한 **Source code (zip)**은 개발용 소스 압축파�
 
 ## 개발 및 공식 등록
 
+읽기 전용 검토는 페이지 메타정보를 묶어 조회하고 확인 한 번 안에서 페이지·첨부 응답을 재사용합니다. 다음 검토와 쓰기 전 검사는 새 상태를 조회합니다. 연결당 REST 요청은 최대 4개이며 GET 재시도는 서버 대기 시간을 존중하고 60초 대기 한도를 적용합니다. POST·PUT·응답 불명 쓰기는 자동 재전송하지 않습니다. 세부 범위와 합성 측정은 [성능 비교 안내](testing/PERFORMANCE.md)를 참고하세요.
+
 `npm ci --ignore-scripts --offline --no-audit --no-fund`로 의존성이 없는 lockfile을 확인한 뒤 `npm run build`로 `main.js`를 생성하고 `npm test`로 빌드와 시험을 실행합니다. Node.js는 개발자에게만 필요합니다.
 
 공개 영문·한글 Chromium 시험과 임시 Obsidian 보관함의 실제 앱 시험은 [UI·네이티브 시험 안내](testing/README.ko.md)에 정리했습니다. 개발 시험용 의존성과 lockfile은 `testing/`에 분리하며 플러그인 배포 파일에 포함하지 않습니다.
@@ -152,11 +154,11 @@ GitHub가 자동 생성한 **Source code (zip)**은 개발용 소스 압축파�
 
 공식 제출에는 사용 안내, `LICENSE`, manifest와 일치하는 GitHub 릴리스가 필요하며 [Obsidian Community](https://community.obsidian.md/)에서 진행합니다. macOS·Windows·Linux의 네이티브 합성 시험을 완료했으며 세부 범위와 한계는 시험 안내에서 확인할 수 있습니다. 공개 플러그인 ID의 사용 가능 여부도 제출 전에 확인합니다. [공식 등록 안내](https://docs.obsidian.md/plugins/releasing/submit-plugin)를 참고하세요. 변경 이력과 검증 범위는 [CHANGELOG.md](CHANGELOG.md)에 기록합니다.
 
-CI는 오프라인 `npm ci`로 루트 lockfile을 확인하고 Linux·macOS·Windows에서 Node 시험 60개와 영문·한글 Chromium 시험을 실행합니다. 생성한 `main.js`와 커밋한 파일의 일치 및 배포 정보·패키징도 검사합니다. 별도 작업에서는 SHA256을 고정한 공식 Obsidian을 내려받아 Windows·Linux의 임시 합성 보관함에서 실행합니다. 분리된 시험용 의존성 설치에만 npm 레지스트리 접근이 필요하며 모든 Confluence 응답은 합성입니다. 유지관리자는 Node.js 26과 패키징용 Python 3을 사용하며 사용자는 둘 다 설치할 필요가 없습니다.
+CI는 오프라인 `npm ci`로 루트 lockfile을 확인하고 Linux·macOS·Windows에서 Node 시험 78개와 영문·한글 Chromium 시험을 실행합니다. 생성한 `main.js`와 커밋한 파일의 일치 및 배포 정보·패키징도 검사합니다. 별도 작업에서는 SHA256을 고정한 공식 Obsidian을 내려받아 Windows·Linux의 임시 합성 보관함에서 실행합니다. 분리된 시험용 의존성 설치에만 npm 레지스트리 접근이 필요하며 모든 Confluence 응답은 합성입니다. 유지관리자는 Node.js 26과 패키징용 Python 3을 사용하며 사용자는 둘 다 설치할 필요가 없습니다.
 
 새 버전은 manifest·package·lockfile·versions·변경 이력과 설치 링크를 갱신하고 빌드·커밋한 뒤 정확한 `x.y.z` 태그를 푸시합니다. 릴리스 워크플로가 CI를 기다린 뒤 실행 파일 3개·두 언어의 안내·변경 이력·MIT 라이선스만 패키징하고 배포 파일에 빌드 출처 증명을 붙입니다. 초안을 만든 뒤 내려받은 파일·ZIP 허용 목록·서명 워크플로·원본 태그·커밋을 검증하고 공개합니다. 기존 릴리스 파일은 덮어쓰지 않습니다. 실패한 초안은 동일 커밋과 기존 파일이 모두 일치할 때 누락 파일만 추가하고 출처를 재검증해 재개합니다. 변경된 태그나 일치하지 않는 초안은 거절합니다. 일반 CI와 PR은 읽기 전용 권한이며 태그 릴리스 작업만 배포·출처 증명 권한을 사용합니다.
 
-로컬 패키징 검사는 `python3 -m unittest discover -s tools -p 'test_*.py' -v`로 실행합니다. `python3 tools/release.py --tag 0.6.3 --output /tmp/confluence-folder-sync-0.6.3`로 새 패키지를 만듭니다. 같은 릴리스에서 배포 파일을 내려받고 체크섬을 확인한 뒤 `gh attestation verify main.js --repo hyun-seung/confluence-folder-sync --signer-workflow hyun-seung/confluence-folder-sync/.github/workflows/release.yml --source-ref refs/tags/0.6.3`로 출처를 확인합니다. 다른 파일도 각각 검사하며 정확한 커밋까지 고정하려면 `--source-digest <태그의 전체 커밋>`을 추가합니다. [GitHub 출처 증명 안내](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations)를 참고하세요.
+로컬 패키징 검사는 `python3 -m unittest discover -s tools -p 'test_*.py' -v`로 실행합니다. `python3 tools/release.py --tag 0.7.0 --output /tmp/confluence-folder-sync-0.7.0`로 새 패키지를 만듭니다. 같은 릴리스에서 배포 파일을 내려받고 체크섬을 확인한 뒤 `gh attestation verify main.js --repo hyun-seung/confluence-folder-sync --signer-workflow hyun-seung/confluence-folder-sync/.github/workflows/release.yml --source-ref refs/tags/0.7.0`로 출처를 확인합니다. 다른 파일도 각각 검사하며 정확한 커밋까지 고정하려면 `--source-digest <태그의 전체 커밋>`을 추가합니다. [GitHub 출처 증명 안내](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations)를 참고하세요.
 
 공개 자료에는 합성 예시를 사용합니다. 개인 설정, 보관함 문서, 토큰, 동기화 상태와 사내 경로는 로컬에 유지하세요.
 

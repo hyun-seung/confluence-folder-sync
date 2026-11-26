@@ -51,23 +51,22 @@ class AutomaticSync {
       const result = await plugin.operation("Automatic check", async ({ client, profile, save }) => {
         const tree = await preparedNotes(plugin.app, client.config);
         const catalog = await client.catalog();
-        const review = await publicationReview(plugin.app, client, profile, tree, catalog);
-        const remote = await remotePages(client, catalog);
-        const known = new Set([...Object.values(profile.pages).map(entry => entry.id), ...Object.keys(profile.imports)]);
+        const reads = new ReviewReads(client);
+        const review = await publicationReview(plugin.app, reads, profile, tree, catalog);
+        const remote = await remotePages(reads, catalog);
+        const linked = new Map(Object.values(profile.pages).map(entry => [entry.id, entry]));
         const remoteChanges = new Set();
         const tracked = [];
         for (const [id, page] of remote.pages) {
-          const entry = Object.values(profile.pages).find(item => item.id === id) ?? profile.imports[id];
-          if (!known.has(id) || entry?.version !== page.version.number || entry?.title !== page.title ||
+          const entry = linked.get(id) ?? profile.imports[id];
+          if (!entry || entry.version !== page.version.number || entry.title !== page.title ||
               entry?.parent !== String(page.parentId)) remoteChanges.add(id);
           if (entry?.remoteAttachments) tracked.push([id, entry]);
         }
-        for (let start = 0; start < tracked.length; start += 4) {
-          await Promise.all(tracked.slice(start, start + 4).map(async ([id, entry]) => {
-            const inventory = attachmentInventory(await client.attachments(id));
-            if (attachmentDiff(entry.remoteAttachments, inventory).length) remoteChanges.add(id);
-          }));
-        }
+        await mapConcurrent(tracked, async ([id, entry]) => {
+          const inventory = attachmentInventory(await reads.attachments(id));
+          if (attachmentDiff(entry.remoteAttachments, inventory).length) remoteChanges.add(id);
+        });
         let published = 0;
         if (plugin.data.settings.autoPublish && plugin.data.settings.allowPublish) {
           const paths = automaticCandidates(review, profile, tree);

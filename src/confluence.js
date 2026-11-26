@@ -137,16 +137,20 @@ function binaryGet(url, headers, expectedBytes) {
 }
 
 class ConfluenceCloud {
-  constructor(config, token, request = requestUrl) {
+  constructor(config, token, request = requestUrl, timing = {}) {
     this.config = config;
     this.request = request;
+    this.requests = new RequestQueue(timing);
+    this.random = timing.random ?? Math.random;
+    this.check = timing.check;
+    this.onWait = timing.onWait;
     this.auth = "Basic " + btoa(String.fromCharCode(...new TextEncoder().encode(config.email + ":" + token)));
   }
 
   async connect() {
-    const response = await this.request({
+    const response = await this.requests.run(() => this.request({
       url: this.config.origin + "/_edge/tenant_info", method: "GET", throw: false,
-    });
+    }), () => this.check?.(), this.requests.now() + RETRY_WAIT_BUDGET);
     if (response.status !== 200) throw new ApiError("tenant lookup", response.status);
     const id = response.json.cloudId;
     if (typeof id !== "string" || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id)) {
@@ -172,11 +176,26 @@ class ConfluenceCloud {
       body = JSON.stringify(options.json);
     }
     let response;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      response = await this.request({ url: this.gateway + path, method, headers, body, throw: false });
-      if (method !== "GET" || (response.status !== 429 && response.status !== 503) || attempt === 2) break;
-      const delay = Number(response.headers?.["retry-after"]) || 2;
-      await new Promise(resolve => setTimeout(resolve, 1000 * Math.min(10, Math.max(1, delay))));
+    const deadline = this.requests.now() + RETRY_WAIT_BUDGET;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      let retry = false;
+      response = await this.requests.run(async () => {
+        const result = await this.request({ url: this.gateway + path, method, headers, body, throw: false });
+        const retryAfter = retryAfterMilliseconds(result.headers, this.requests.now());
+        if (result.status === 429 || result.status === 503 && retryAfter !== null) {
+          const backoff = Math.min(30_000, 1000 * 2 ** attempt);
+          const delay = Math.max(backoff, retryAfter ?? 0) + Math.floor(this.random() * backoff * 0.2);
+          this.requests.defer(delay);
+          retry = method === "GET" && attempt < 3;
+          if (retry && this.requests.now() + delay <= deadline &&
+              (this.waitNoticeAt === undefined || this.requests.now() - this.waitNoticeAt >= 5000)) {
+            this.waitNoticeAt = this.requests.now();
+            this.onWait?.(delay);
+          }
+        }
+        return result;
+      }, () => this.check?.(), deadline);
+      if (!retry) break;
     }
     if (response.status < 200 || response.status >= 300) throw new ApiError(method, response.status);
     return response;
@@ -242,7 +261,7 @@ class ConfluenceCloud {
     return this.list(API + "/pages/" + numericId(id) + "/versions", { limit: 50 });
   }
 
-  async currentPages(ids) {
+  async currentPages(ids, { allowMissing = false } = {}) {
     const mapped = new Map();
     for (let i = 0; i < ids.length; i += 25) {
       const group = ids.slice(i, i + 25);
@@ -255,7 +274,7 @@ class ConfluenceCloud {
         mapped.set(id, page);
       }
     }
-    if (mapped.size !== ids.length) throw new Error("A page changed location or became inaccessible. Run the command again.");
+    if (!allowMissing && mapped.size !== ids.length) throw new Error("A page changed location or became inaccessible. Run the command again.");
     return mapped;
   }
 
