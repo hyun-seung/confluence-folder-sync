@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Publish a portable synthetic UI harness with separate locked test dependencies: English/Korean at desktop and narrow viewport widths.
+- Add native Obsidian 1.14.5 checks with disposable profiles/vaults, pinned official Windows/Linux downloads, actual UI/Vault/SecretStorage APIs, restoration, binary imports, rename events and plugin reload.
+- Run all three OS browser/Node jobs and both native desktop jobs in CI; refuse unrelated vaults without closing their app instance. Keep runtime assets/version at 0.6.3.
+- 공개 UI 시험과 실제 Windows·Linux Obsidian의 합성 시험을 CI에 연결했습니다. 로컬 macOS에서도 검증했으며 원본 문서·설정·제품 실행 파일은 유지합니다.
+
 ## 0.6.3
 
 - Replace the conflict dialog's CSS `:has` selector with a class attached to that modal only; remove the class when the dialog closes and retain the same width and responsive columns.

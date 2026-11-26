@@ -140,19 +140,19 @@ GitHub가 자동 생성한 **Source code (zip)**은 개발용 소스 압축파�
 - 제목, 기본 강조, 목록, Markdown 표, 코드 블록, 지정한 원본 폴더 내부 링크와 참조된 첨부파일을 발행합니다. 첨부파일은 개당 최대 25 MiB입니다.
 - Mermaid는 Confluence 코드 매크로에 소스로 발행합니다. Confluence에서 자동으로 다이어그램으로 그리는 기능은 제공하지 않습니다. Markdown 확장 문법과 Confluence의 모든 편집 기능을 완전히 변환하지는 못합니다.
 - 가져오기는 별도 폴더에 새 페이지 본문과 첨부파일을 저장하고 크기를 확인합니다. 버전 비교와 선택 반영은 변환된 본문 텍스트를 대상으로 하며 첨부파일 변경은 보고서에 따로 표시합니다.
-- macOS의 Obsidian 1.14.5에서 0.6.0 설치, 비밀 저장소 인증과 한국어 관리 화면의 기존 연결 85개를 읽기 전용으로 확인했습니다. 이전 0.5.0의 발행 검토·이력 검증 근거도 유지합니다. 선택 발행·충돌 해결·복원·연결 관리 동작은 두 언어의 합성 시험으로 검증했으며 이전 네이티브 합성 첨부파일 가져오기 근거도 유지합니다. Windows·Linux 네이티브 설치 검증은 남아 있습니다. 모바일은 지원하지 않습니다.
+- macOS의 Obsidian 1.14.5에서 0.6.0 설치, 비밀 저장소 인증과 한국어 관리 화면의 기존 연결 85개를 읽기 전용으로 확인했습니다. 이전 0.5.0의 발행 검토·이력 검증 근거도 유지합니다. 선택 발행·충돌 해결·복원·연결 관리 동작은 두 언어의 합성 시험으로 검증했으며 이전 네이티브 합성 첨부파일 가져오기 근거도 유지합니다. 추가로 macOS·Windows·Linux의 실제 Obsidian 1.14.5에서 합성 자료로 UI/API 로딩, SecretStorage 읽기·쓰기, 선택 반영·백업 복원, 바이너리 가져오기, 이동 이벤트와 플러그인 재로딩을 검증했습니다. 정확한 CI 근거는 [시험 안내](testing/README.ko.md)에 있습니다. Windows는 공식 배포 파일을 추출해 실행했으며 설치 프로그램 UI·OS 키체인 보장·Windows/Linux의 실제 Atlassian 인증은 이번 시험 범위에 포함하지 않습니다. 모바일은 지원하지 않습니다.
 
 ## 개발 및 공식 등록
 
 `npm ci --ignore-scripts --offline --no-audit --no-fund`로 의존성이 없는 lockfile을 확인한 뒤 `npm run build`로 `main.js`를 생성하고 `npm test`로 빌드와 시험을 실행합니다. Node.js는 개발자에게만 필요합니다.
 
-공개 영문·한글 Chromium 시험과 임시 Obsidian 보관함의 실제 앱 시험은 [UI·네이티브 시험 안내](testing/README.md)에 정리했습니다. 개발 시험용 의존성과 lockfile은 `testing/`에 분리하며 플러그인 배포 파일에 포함하지 않습니다.
+공개 영문·한글 Chromium 시험과 임시 Obsidian 보관함의 실제 앱 시험은 [UI·네이티브 시험 안내](testing/README.ko.md)에 정리했습니다. 개발 시험용 의존성과 lockfile은 `testing/`에 분리하며 플러그인 배포 파일에 포함하지 않습니다.
 
 릴리스 태그는 `manifest.json`의 버전과 같고 `v` 접두사를 붙이지 않습니다. `versions.json`은 Obsidian 최소 버전을 기록합니다. 릴리스에는 `main.js`, `manifest.json`, `styles.css`를 개별 파일로 올리며, 수동 설치용 ZIP과 검증용 `SHA256SUMS.txt`를 함께 제공합니다. ZIP에는 플러그인 폴더와 설치 파일, 두 언어의 안내 문서와 `LICENSE`를 넣습니다.
 
-공식 제출에는 사용 안내, `LICENSE`, manifest와 일치하는 GitHub 릴리스가 필요하며 [Obsidian Community](https://community.obsidian.md/)에서 진행합니다. Windows·Linux 네이티브 검증은 이 프로젝트의 배포 준비 목표로 별도 관리합니다. 현재 완료한 네이티브 검증은 macOS입니다. 공개 플러그인 ID의 사용 가능 여부도 제출 전에 확인합니다. [공식 등록 안내](https://docs.obsidian.md/plugins/releasing/submit-plugin)를 참고하세요. 변경 이력과 검증 범위는 [CHANGELOG.md](CHANGELOG.md)에 기록합니다.
+공식 제출에는 사용 안내, `LICENSE`, manifest와 일치하는 GitHub 릴리스가 필요하며 [Obsidian Community](https://community.obsidian.md/)에서 진행합니다. macOS·Windows·Linux의 네이티브 합성 시험을 완료했으며 세부 범위와 한계는 시험 안내에서 확인할 수 있습니다. 공개 플러그인 ID의 사용 가능 여부도 제출 전에 확인합니다. [공식 등록 안내](https://docs.obsidian.md/plugins/releasing/submit-plugin)를 참고하세요. 변경 이력과 검증 범위는 [CHANGELOG.md](CHANGELOG.md)에 기록합니다.
 
-CI는 오프라인 `npm ci`로 lockfile을 확인하고 Linux·macOS·Windows에서 Node 합성 시험을 실행하고, 생성한 `main.js`와 커밋한 파일의 일치 및 배포 정보·패키징을 검사합니다. 이는 실제 Obsidian 앱 검증과 구분합니다. 유지관리자는 Node.js 26과 패키징용 Python 3을 사용하며 사용자는 둘 다 설치할 필요가 없습니다.
+CI는 오프라인 `npm ci`로 루트 lockfile을 확인하고 Linux·macOS·Windows에서 Node 시험 60개와 영문·한글 Chromium 시험을 실행합니다. 생성한 `main.js`와 커밋한 파일의 일치 및 배포 정보·패키징도 검사합니다. 별도 작업에서는 SHA256을 고정한 공식 Obsidian을 내려받아 Windows·Linux의 임시 합성 보관함에서 실행합니다. 분리된 시험용 의존성 설치에만 npm 레지스트리 접근이 필요하며 모든 Confluence 응답은 합성입니다. 유지관리자는 Node.js 26과 패키징용 Python 3을 사용하며 사용자는 둘 다 설치할 필요가 없습니다.
 
 새 버전은 manifest·package·lockfile·versions·변경 이력과 설치 링크를 갱신하고 빌드·커밋한 뒤 정확한 `x.y.z` 태그를 푸시합니다. 릴리스 워크플로가 CI를 기다린 뒤 실행 파일 3개·두 언어의 안내·변경 이력·MIT 라이선스만 패키징하고 배포 파일에 빌드 출처 증명을 붙입니다. 초안을 만든 뒤 내려받은 파일·ZIP 허용 목록·서명 워크플로·원본 태그·커밋을 검증하고 공개합니다. 기존 릴리스 파일은 덮어쓰지 않습니다. 실패한 초안은 동일 커밋과 기존 파일이 모두 일치할 때 누락 파일만 추가하고 출처를 재검증해 재개합니다. 변경된 태그나 일치하지 않는 초안은 거절합니다. 일반 CI와 PR은 읽기 전용 권한이며 태그 릴리스 작업만 배포·출처 증명 권한을 사용합니다.
 

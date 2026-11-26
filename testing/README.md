@@ -1,5 +1,7 @@
 # Reproducible desktop and UI checks
 
+English · [한국어](README.ko.md)
+
 These tests use synthetic notes, account identifiers and remote responses. Never point them at a personal vault or copy private plugin data into this directory. Test dependencies live here; the shipped plugin and root build have no npm dependencies.
 
 From the repository root, using Node.js 26:
@@ -35,3 +37,15 @@ The native scenario uses real Plugin, Modal, Setting, Vault, SecretStorage and r
 CI downloads official Obsidian **1.14.5** [release assets](https://github.com/obsidianmd/obsidian-releases/releases/tag/v1.14.5) with hard-coded SHA256 checksums. Windows uses 7-Zip to extract the verified x64 application without running an installer. Linux extracts the official tarball and uses Xvfb. `--no-sandbox` is added only on disposable Linux CI runners; tests use no credentials or real documents. The downloader refuses to run outside GitHub Actions. Local runs use an explicitly selected installed executable, whose authenticity remains the maintainer's responsibility.
 
 Every push/PR runs Node and Chromium fixtures on all three operating systems plus actual Obsidian on Windows and Linux. Tag release CI uses the same checks. Runner browser and desktop/API versions appear in logs. A failed or unavailable native run fails CI; it is never silently counted as a pass. See the workflow run for the exact commit and platform results.
+
+## Verified checkpoint — 2026-11-26
+
+[CI run 45769956255](https://github.com/hyun-seung/confluence-folder-sync/actions/runs/45769956255) passed all nine jobs at commit `db03cf22fea4fee605c55d0a236d0dcb50ffe8f1`:
+
+| Check | macOS | Windows | Linux |
+| --- | --- | --- | --- |
+| Node checks (60) | Passed | Passed | Passed |
+| Chromium: en/ko × 1280/390px | Passed | Passed | Passed |
+| Real Obsidian 1.14.5: en/ko | Passed locally | Passed in CI | Passed in CI |
+
+The packaging job also passed all 12 Python checks and package validation. Native logs report API version `1.14.5` and success for SecretStorage round trips, selected edits/restoration, binary imports, rename events and plugin reload. The public runtime remains 0.6.3; this checkpoint changes development infrastructure only. Native macOS was run separately with the installed official desktop executable and a disposable profile.
