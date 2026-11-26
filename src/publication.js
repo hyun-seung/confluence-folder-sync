@@ -8,11 +8,14 @@ function attachmentsConflict(entry, note, files) {
   const raw = new Map(files.map(file => [file.title, file]));
   return attachmentDiff(entry.remoteAttachments, attachmentInventory(files)).some(change => {
     const asset = desired.get(change.title);
+    const intent = entry.uploadIntents?.[change.title];
     const file = raw.get(change.title);
     // A known content-addressed upload may have succeeded before a prior request
     // was interrupted. Existing/deleted/edited remote versions still conflict.
-    return change.kind !== "Added" || !asset || change.version !== 1 ||
-      file?.comment !== asset.hash || file?.fileSize !== asset.data.byteLength;
+    const hash = intent?.hash ?? asset?.hash;
+    const size = intent?.size ?? asset?.data.byteLength;
+    return change.kind !== "Added" || !hash || change.version !== 1 ||
+      file?.comment !== hash || file?.fileSize !== size;
   });
 }
 

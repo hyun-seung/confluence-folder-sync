@@ -263,10 +263,11 @@ class Publisher {
       if (validateVersion(page, entry)) {
         const recoveredInput = entry.pending.preserveMigrated ? entry.pending.inputHash : null;
         const inventory = attachmentInventory(await this.client.attachments(entry.id));
-        const managed = new Set(Array.from(note.assets.values(), asset => asset.name));
+        const managed = new Set([...Array.from(note.assets.values(), asset => asset.name), ...Object.keys(entry.uploadIntents ?? {})]);
         const merged = new Map((entry.remoteAttachments ?? []).map(asset => [asset.id, asset]));
         for (const asset of inventory) if (managed.has(asset.title)) merged.set(asset.id, asset);
         entry.remoteAttachments = entry.remoteAttachments ? Array.from(merged.values()) : inventory;
+        delete entry.uploadIntents;
         entry.version = page.version.number;
         entry.bodyHash = entry.pending.bodyHash;
         entry.sourceHash = entry.pending.sourceHash;
@@ -281,12 +282,26 @@ class Publisher {
       }
       const relocation = page.title !== note.title || String(page.parentId) !== parent;
       const preserveMigrated = entry.migratedInputHash === note.inputHash;
-      if (entry.migratedInputHash === note.inputHash && !relocation) continue;
+      if (entry.migratedInputHash === note.inputHash && !relocation && !entry.pending && !entry.uploadIntents) continue;
       const body = entry.migratedInputHash === note.inputHash ? await checkedBody(this.client, page) :
         resolvedStorage(note, this.app, this.client, ids);
       const bodyHash = await digest(body);
       if (bodyHash === entry.bodyHash && !relocation) {
-        if (entry.sourceHash !== note.sourceHash) {
+        const unfinished = Boolean(entry.pending || entry.uploadIntents);
+        if (unfinished) {
+          const files = await this.client.attachments(entry.id);
+          if (attachmentsConflict(entry, note, files)) {
+            throw new Error("Confluence attachments changed. Review the conflict before publishing.");
+          }
+          const managed = new Set(Object.keys(entry.uploadIntents ?? {}));
+          const inventory = attachmentInventory(files);
+          const merged = new Map((entry.remoteAttachments ?? []).map(asset => [asset.id, asset]));
+          for (const asset of inventory) if (managed.has(asset.title)) merged.set(asset.id, asset);
+          entry.remoteAttachments = entry.remoteAttachments ? Array.from(merged.values()) : inventory;
+          delete entry.pending;
+          delete entry.uploadIntents;
+        }
+        if (entry.sourceHash !== note.sourceHash || unfinished) {
           entry.sourceHash = note.sourceHash;
           entry.inputHash = note.inputHash;
           await this.save();
@@ -303,6 +318,9 @@ class Publisher {
         for (const asset of assets) {
           const found = existing.get(asset.name);
           if (!found) {
+            entry.uploadIntents ??= {};
+            entry.uploadIntents[asset.name] = { hash: asset.hash, size: asset.data.byteLength };
+            await this.save();
             await control.check?.(note);
             await this.client.upload(entry.id, asset);
           }
@@ -325,12 +343,12 @@ class Publisher {
           (relocation && (result.title !== note.title || String(result.parentId) !== parent))) {
         throw new Error("Confluence did not confirm the expected update.");
       }
-      if (!entry.remoteAttachments || assets.length) {
+      if (!entry.remoteAttachments || assets.length || Object.keys(entry.uploadIntents ?? {}).length) {
         const inventory = attachmentInventory(await this.client.attachments(entry.id));
         if (!entry.remoteAttachments) {
           entry.remoteAttachments = inventory;
         } else {
-          const managed = new Set(assets.map(asset => asset.name));
+          const managed = new Set([...assets.map(asset => asset.name), ...Object.keys(entry.uploadIntents ?? {})]);
           const merged = new Map(entry.remoteAttachments.map(asset => [asset.id, asset]));
           for (const asset of inventory) if (managed.has(asset.title)) merged.set(asset.id, asset);
           entry.remoteAttachments = Array.from(merged.values());
@@ -339,6 +357,7 @@ class Publisher {
       entry.version = result.version.number;
       entry.bodyHash = bodyHash;
       entry.sourceHash = note.sourceHash;
+      delete entry.uploadIntents;
       entry.inputHash = note.inputHash;
       entry.title = note.title;
       entry.parent = parent;

@@ -720,3 +720,38 @@ test("a known immutable attachment upload resumes after interrupted publication 
   assert.equal(remote.stats.uploads, 1);
   assert.equal(profile.pages["file:Docs/One.md"].remoteAttachments.length, 1);
 });
+
+test("changing an attachment reference after interrupted upload can resume using durable upload intent", async () => {
+  const { bodies, profile, remote, review, publish } = await imagePublicationFixture();
+  const update = remote.update;
+  remote.update = async () => { throw new Error("interrupted"); };
+  await assert.rejects(publish(await review(), ["Docs/One.md"]), /interrupted/);
+  assert.equal(Object.keys(profile.pages["file:Docs/One.md"].uploadIntents).length, 1);
+  bodies.set("Docs/One.md", "The image was intentionally removed locally.");
+  remote.update = update;
+  const plan = await review();
+  assert.equal(plan.rows.find(row => row.path === "Docs/One.md").status, "Changed");
+  await publish(plan, ["Docs/One.md"]);
+  const entry = profile.pages["file:Docs/One.md"];
+  assert.equal(remote.stats.uploads, 1);
+  assert.equal(entry.remoteAttachments.length, 1);
+  assert.equal(entry.uploadIntents, undefined);
+  assert.match(remote.records.get(entry.id).body.storage.value, /intentionally removed/);
+});
+
+test("reverting local text to its published baseline clears an interrupted update without a remote write", async () => {
+  const { bodies, profile, remote, review, publish } = await imagePublicationFixture();
+  const update = remote.update;
+  remote.update = async () => { throw new Error("interrupted"); };
+  await assert.rejects(publish(await review(), ["Docs/One.md"]), /interrupted/);
+  bodies.set("Docs/One.md", "# One");
+  remote.update = update;
+  const updates = remote.stats.updates;
+  assert.equal(await publish(await review(), ["Docs/One.md"]), 0);
+  const entry = profile.pages["file:Docs/One.md"];
+  assert.equal(entry.pending, undefined);
+  assert.equal(entry.uploadIntents, undefined);
+  assert.equal(entry.remoteAttachments.length, 1);
+  assert.equal(remote.stats.updates, updates);
+  assert.equal((await review()).rows.find(row => row.path === "Docs/One.md").status, "Unchanged");
+});
