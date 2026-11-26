@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.2
+
+- Enumerate Markdown through the selected source folder's children instead of the vault-wide file registry. Exclude hidden branches and hidden attachment targets; reject malformed or changed hierarchies before publication.
+- Add cross-platform Node fixture CI and packaging regression checks using read-only pull-request permissions.
+- Build exact semantic release tags, verify the committed generated runtime, package an explicit public-file whitelist, and generate deterministic ZIPs with checksums.
+- Attest every release asset with GitHub build provenance, verify downloaded draft assets against their tagged source and signing workflow/ref/commit, then publish. Existing releases are not overwritten.
+- 원본 폴더 안의 파일만 순회하고 숨김 경로를 제외합니다. 태그 기반 CI에서 배포 파일과 빌드 출처 증명을 검증한 뒤 공개합니다. 실행 환경은 Obsidian 데스크톱이며 Windows·Linux 실제 앱 검증은 별도입니다.
+
 ## 0.6.1
 
 - Add the owner-approved MIT license to the source repository and installation ZIP.

@@ -2,3 +2,5 @@ node_modules/
 data.json
 .obsidian/
 .DS_Store
+.release/
+__pycache__/

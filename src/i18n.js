@@ -1,5 +1,6 @@
 // English messages are stable translation keys. Interpolate values only after lookup.
 const KOREAN = {
+  "The source folder hierarchy changed. Reload the review.": "원본 폴더 계층이 변경되었습니다. 검토 목록을 다시 불러오세요.",
   "Connections and recovery": "연결·복구 관리",
   "Manage connections": "연결 관리",
   "Load connections to inspect local mapping state.": "연결 정보를 불러와 로컬 매핑 상태를 확인하세요.",

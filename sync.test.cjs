@@ -7,9 +7,29 @@ const fromBundle = new Function("require", "module",
   "ConfluenceCloud, Publisher, preparedNotes, pageTrails, digest, lineChange, fromStorage, " +
   "attachmentInventory, attachmentDiff, reviewHunks, matchHunk, mergeSelected, applyLocalReview, " +
   "KOREAN, syncLanguage, translate, localizedError, SyncError, ApiError, publicationReview, publishSelection, " +
-  "resolveConflict, publicationTarget, rekeySource, saveNoteBackup, restoreNoteBackup, automaticCandidates, AutomaticSync, mappingInventory, prepareMappingChange, applyMappingChange };");
+  "resolveConflict, publicationTarget, rekeySource, saveNoteBackup, restoreNoteBackup, automaticCandidates, AutomaticSync, mappingInventory, prepareMappingChange, applyMappingChange, sourceMarkdownFiles };");
 const fakeModule = { exports: {} };
 const lib = fromBundle(() => ({ Plugin: class {}, PluginSettingTab: class {}, Modal: class {}, Notice: class {} }), fakeModule);
+function fixtureFolder(source, files) {
+  const root = { path: source, children: [] };
+  const folders = new Map([[source, root]]);
+  for (const file of files.filter(item => item.path.startsWith(source + "/"))) {
+    const parts = file.path.slice(source.length + 1).split("/");
+    let parent = root;
+    for (const name of parts.slice(0, -1)) {
+      const path = parent.path + "/" + name;
+      if (!folders.has(path)) {
+        const folder = { path, children: [] };
+        folders.set(path, folder);
+        parent.children.push(folder);
+      }
+      parent = folders.get(path);
+    }
+    parent.children.push(file);
+  }
+  return root;
+}
+
 const fixtureConfig = {
   folderUrl: "https://example.atlassian.net/wiki/spaces/DOC/folder/100/Test", source: "Docs",
   inbox: "Incoming", email: "test@example.com", secretId: "fixture",
@@ -71,7 +91,7 @@ test("a remote URL and a raw HTML image never trigger attachment reads", async (
   const denied = { path: "Other/Logo.png", name: "Logo.png", extension: "png", stat: { size: 10 } };
   const app = {
     vault: {
-      getFolderByPath: () => ({}), getMarkdownFiles: () => [document],
+      getFolderByPath: source => fixtureFolder(source, [document]),
       read: async () => "![[Logo.png]]\n![](https://example.test/asset)\n<img src=\"https://example.test/asset\">",
       readBinary: async () => { throw new Error("Unexpected file read"); },
     },
@@ -150,7 +170,7 @@ test("publication creates hierarchy, uploads once, keeps page IDs on updates and
   const bodies = { First: "# First\n[[Second]]\n![[example.png]]", Second: "# Second" };
   const app = {
     vault: {
-      getFolderByPath: () => ({}), getMarkdownFiles: () => files,
+      getFolderByPath: source => fixtureFolder(source, files),
       read: async file => bodies[file.basename], readBinary: async () => new Uint8Array([0, 1]).buffer,
     },
     metadataCache: { getFirstLinkpathDest: target => target === "Second" ? files[1] : asset },
@@ -316,7 +336,7 @@ test("a migrated baseline preserves unchanged formatter output but publishes lat
   const file = { path: "Docs/Legacy.md", basename: "Legacy", extension: "md" };
   let text = "# Legacy\n\nOriginal";
   const app = {
-    vault: { getFolderByPath: () => ({}), getMarkdownFiles: () => [file], read: async () => text },
+    vault: { getFolderByPath: source => fixtureFolder(source, [file]), read: async () => text },
     metadataCache: { getFirstLinkpathDest: () => null },
   };
   const page = await remote.create("page", "Legacy", "100", "<p>Earlier formatter with diagram</p>");
@@ -342,7 +362,7 @@ function selectionFixture() {
   const files = ["Docs/One.md", "Docs/Two.md", "Docs/Nested/Three.md"].map(path =>
     ({ path, basename: path.split("/").at(-1).slice(0, -3), extension: "md" }));
   const bodies = new Map(files.map(file => [file.path, "# " + file.basename]));
-  const app = { workspace: { getLeavesOfType: () => [] }, vault: { getFolderByPath: () => ({}), getMarkdownFiles: () => files,
+  const app = { workspace: { getLeavesOfType: () => [] }, vault: { getFolderByPath: source => fixtureFolder(source, files),
     getFileByPath: path => files.find(file => file.path === path), read: async file => bodies.get(file.path) },
     metadataCache: { getFirstLinkpathDest: target => files.find(file => file.basename === target) } };
   const review = async () => lib.publicationReview(app, remote, profile,
@@ -952,7 +972,7 @@ test("source migration rejects changed referenced bytes even with unchanged Mark
   const newTarget = lib.publicationTarget(nextConfig);
   const oldRead = f.app.vault.read;
   const oldBinary = f.app.vault.readBinary;
-  f.app.vault.getMarkdownFiles = () => [{ path: "Moved/One.md", extension: "md", basename: "One" }];
+  f.app.vault.getFolderByPath = source => fixtureFolder(source, [{ path: "Moved/One.md", extension: "md", basename: "One" }]);
   f.app.vault.read = async file => oldRead({ ...file, path: file.path.replace(/^Moved\//, "Docs/") });
   f.app.vault.readBinary = async () => new Uint8Array([8, 8]).buffer;
   const oldLink = f.app.metadataCache.getFirstLinkpathDest;
@@ -1036,4 +1056,100 @@ test("unchanged image mappings migrate in both directions with normalized input 
     assert.equal(entry.inputHash, tree.notes.find(note => note.path === source + "/One.md").inputHash);
     assert.equal(entry.id, f.profile.pages["file:Docs/One.md"].id);
   }
+});
+
+test("source traversal visits only visible descendants and never accesses the vault-wide registry", async () => {
+  const one = { path: "Docs/첫째.md", basename: "첫째", extension: "md" };
+  const two = { path: "Docs/Nested/Second.MD", basename: "Second", extension: "MD" };
+  const hidden = { path: "Docs/.private", get children() { throw new Error("Hidden branch enumerated"); } };
+  const root = { path: "Docs", children: [one, { path: "Docs/Nested", children: [two] }, hidden,
+    { path: "Docs/.private.md", extension: "md" }, { path: "Docs/asset.bin", extension: "bin" }] };
+  const reads = [];
+  const app = { vault: { getFolderByPath: path => path === "Docs" ? root : null,
+    get getMarkdownFiles() { throw new Error("Whole-vault registry accessed"); },
+    get getFiles() { throw new Error("Whole-vault registry accessed"); },
+    read: async file => { reads.push(file.path); return "# " + file.basename; } },
+    metadataCache: { getFirstLinkpathDest: () => null } };
+  const tree = await lib.preparedNotes(app, lib.validatedConfig(fixtureConfig));
+  assert.deepEqual(tree.notes.map(note => note.path).sort(), [one.path, two.path].sort());
+  assert.deepEqual(reads.sort(), [one.path, two.path].sort());
+  assert.deepEqual(tree.folders, ["Docs/Nested"]);
+});
+
+test("malformed source branches stop before reading notes or inspecting foreign children", async () => {
+  let reads = 0;
+  const file = { path: "Docs/One.md", basename: "One", extension: "md" };
+  const foreign = { path: "Docs-other/Private", get children() { throw new Error("Foreign children accessed"); } };
+  const root = { path: "Docs", children: [file, foreign] };
+  const app = { vault: { getFolderByPath: () => root, read: async () => { reads++; return "# One"; } } };
+  await assert.rejects(lib.preparedNotes(app, lib.validatedConfig(fixtureConfig)), /hierarchy changed/);
+  assert.equal(reads, 0);
+  root.children = [file, file];
+  assert.throws(() => lib.sourceMarkdownFiles(root, "Docs"), /hierarchy changed/);
+  root.children = [{ path: "Docs", children: [] }];
+  assert.throws(() => lib.sourceMarkdownFiles(root, "Docs"), /hierarchy changed/);
+});
+
+test("hidden attachment references are excluded and a note moved during read invalidates the review", async () => {
+  const file = { path: "Docs/One.md", basename: "One", extension: "md" };
+  const app = { vault: { getFolderByPath: source => fixtureFolder(source, [file]),
+    read: async () => "![[secret.png]]", readBinary: async () => { throw new Error("Hidden attachment read"); } },
+    metadataCache: { getFirstLinkpathDest: () => ({ path: "Docs/.private/secret.png", extension: "png" }) } };
+  const config = lib.validatedConfig(fixtureConfig);
+  assert.equal((await lib.preparedNotes(app, config)).notes[0].assets.size, 0);
+  app.vault.read = async () => { file.path = "Elsewhere/One.md"; return "Original"; };
+  await assert.rejects(lib.preparedNotes(app, config), /hierarchy changed/);
+});
+
+test("note and attachment moves during final validation stop before remote writes", async () => {
+  const f = selectionFixture();
+  await f.publish(await f.review(), ["Docs/One.md"]);
+  f.bodies.set("Docs/One.md", "# One\nEdited");
+  let plan = await f.review();
+  const read = f.app.vault.read;
+  const updates = f.remote.stats.updates;
+  f.app.vault.read = async file => {
+    const text = await read(file);
+    if (f.profile.pages["file:Docs/One.md"].pending) file.path = "Outside/One.md";
+    return text;
+  };
+  await assert.rejects(f.publish(plan, ["Docs/One.md"]), /selected note or page changed/);
+  assert.equal(f.remote.stats.updates, updates);
+
+  const image = await imagePublicationFixture();
+  plan = await image.review();
+  const binary = image.app.vault.readBinary;
+  const priorUploads = image.remote.stats.uploads;
+  image.app.vault.readBinary = async file => {
+    const data = await binary(file);
+    if (image.profile.pages["file:Docs/One.md"].uploadIntents) file.path = "Outside/picture.png";
+    return data;
+  };
+  await assert.rejects(image.publish(plan, ["Docs/One.md"]), /selected note or page changed/);
+  assert.equal(image.remote.stats.uploads, priorUploads);
+});
+
+test("prepared notes reject binary moves and actual attachment bytes exceeding stale size metadata", async () => {
+  const f = await imagePublicationFixture();
+  const binary = f.app.vault.readBinary;
+  f.app.vault.readBinary = async file => { const data = await binary(file); file.path = "Outside/picture.png"; return data; };
+  await assert.rejects(lib.preparedNotes(f.app, f.config), /hierarchy changed/);
+  const g = await imagePublicationFixture();
+  g.app.vault.readBinary = async () => new ArrayBuffer(25 * 1024 * 1024 + 1);
+  const tree = await lib.preparedNotes(g.app, g.config);
+  assert.match(tree.notes.find(note => note.path === "Docs/One.md").problem.message, /25 MiB/);
+});
+
+test("a note edited during final attachment validation cannot publish its older reviewed body", async () => {
+  const f = await imagePublicationFixture();
+  const plan = await f.review();
+  const binary = f.app.vault.readBinary;
+  const updates = f.remote.stats.updates;
+  f.app.vault.readBinary = async file => {
+    const data = await binary(file);
+    if (f.profile.pages["file:Docs/One.md"].pending) f.bodies.set("Docs/One.md", "Edited during attachment validation");
+    return data;
+  };
+  await assert.rejects(f.publish(plan, ["Docs/One.md"]), /selected note or page changed/);
+  assert.equal(f.remote.stats.updates, updates);
 });

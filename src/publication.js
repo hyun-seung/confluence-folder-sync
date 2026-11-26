@@ -100,6 +100,27 @@ function checkedSelection(review, current, paths) {
   return selected;
 }
 
+async function checkPublicationInput(app, note, source) {
+  const changed = () => { throw new Error("A selected note or page changed. Refresh the publication review."); };
+  if (!unchangedSourcePaths(note, source)) changed();
+  const inputs = [note.file, ...Array.from(note.assets.values(), asset => asset.file)];
+  const stamp = file => JSON.stringify([file.stat?.ctime, file.stat?.mtime, file.stat?.size]);
+  const revisions = inputs.map(stamp);
+  const text = await app.vault.read(note.file);
+  const sourceHash = await digest(text);
+  if (!unchangedSourcePaths(note, source) || sourceHash !== note.sourceHash || !editorMatches(app, note.path, note.original)) changed();
+  for (const [path, asset] of note.assets) {
+    if (asset.file.path !== path || !visibleSourcePath(path, source)) changed();
+    const data = await app.vault.readBinary(asset.file);
+    if (data.byteLength > MAX_ATTACHMENT_BYTES) changed();
+    const hash = await digest(data);
+    if (!unchangedSourcePaths(note, source) || hash !== asset.hash) changed();
+  }
+  const finalHash = await digest(await app.vault.read(note.file));
+  if (!unchangedSourcePaths(note, source) || finalHash !== note.sourceHash ||
+      !editorMatches(app, note.path, note.original) || inputs.some((file, index) => stamp(file) !== revisions[index])) changed();
+}
+
 async function publishSelection(app, client, profile, save, review, paths, control = {}) {
   if (!client.config.allowPublish) throw new Error("Enable publishing in the plugin settings first.");
   const tree = await preparedNotes(app, client.config);
@@ -110,10 +131,7 @@ async function publishSelection(app, client, profile, save, review, paths, contr
   const subset = selectionTree(tree, selected);
   // Re-read after remote preflight. A modal can stay open while local files change.
   for (const note of subset.notes) {
-    if (note.file.path !== note.path || await digest(await app.vault.read(note.file)) !== note.sourceHash ||
-        !editorMatches(app, note.path, note.original)) {
-      throw new Error("A selected note or page changed. Refresh the publication review.");
-    }
+    await checkPublicationInput(app, note, client.config.source);
   }
   const publisher = new Publisher(client, app, profile, save);
   await publisher.plan(subset, catalog);
@@ -122,16 +140,7 @@ async function publishSelection(app, client, profile, save, review, paths, contr
     check: async note => {
       await control.check?.(note);
       for (const selectedNote of note ? [note] : subset.notes) {
-        if (selectedNote.file.path !== selectedNote.path ||
-            await digest(await app.vault.read(selectedNote.file)) !== selectedNote.sourceHash ||
-            !editorMatches(app, selectedNote.path, selectedNote.original)) {
-          throw new Error("A selected note or page changed. Refresh the publication review.");
-        }
-        for (const [path, asset] of selectedNote.assets) {
-          if (asset.file.path !== path || await digest(await app.vault.readBinary(asset.file)) !== asset.hash) {
-            throw new Error("A selected note or page changed. Refresh the publication review.");
-          }
-        }
+        await checkPublicationInput(app, selectedNote, client.config.source);
       }
     },
   });

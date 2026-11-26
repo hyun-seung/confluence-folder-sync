@@ -2,6 +2,7 @@
 
 // English messages are stable translation keys. Interpolate values only after lookup.
 const KOREAN = {
+  "The source folder hierarchy changed. Reload the review.": "원본 폴더 계층이 변경되었습니다. 검토 목록을 다시 불러오세요.",
   "Connections and recovery": "연결·복구 관리",
   "Manage connections": "연결 관리",
   "Load connections to inspect local mapping state.": "연결 정보를 불러와 로컬 매핑 상태를 확인하세요.",
@@ -982,6 +983,11 @@ function localSlug(text) {
   return normalized(text.trim().toLowerCase()).replace(/[^\p{L}\p{N}_ -]/gu, "").replace(/\s+/g, "-");
 }
 
+function visibleSourcePath(path, source) {
+  return typeof path === "string" && path.startsWith(source + "/") &&
+    path.slice(source.length + 1).split("/").every(part => part && !part.startsWith("."));
+}
+
 function vaultReference(reference, file, app, source) {
   const url = /^[a-z][a-z+.-]*:/i.test(reference.target) || reference.target.startsWith("//");
   if (url) return null;
@@ -993,8 +999,39 @@ function vaultReference(reference, file, app, source) {
     return null;
   }
   const target = decoded ? app.metadataCache.getFirstLinkpathDest(decoded, file.path) : file;
-  if (!target?.extension || !target.path.startsWith(source + "/")) return null;
+  if (!target?.extension || !visibleSourcePath(target.path, source)) return null;
   return { file: target, anchor };
+}
+
+// Walk only the selected branch; never enumerate the vault-wide file registry.
+function sourceMarkdownFiles(folder, source) {
+  if (folder.path !== source || !Array.isArray(folder.children)) {
+    throw new Error("The source folder hierarchy changed. Reload the review.");
+  }
+  const files = [];
+  const stack = [folder];
+  const seen = new Set([source]);
+  while (stack.length) {
+    const current = stack.pop();
+    for (const child of current.children) {
+      const path = child?.path;
+      if (typeof path !== "string" || !path.startsWith(source + "/") || parentPath(path) !== current.path) {
+        throw new Error("The source folder hierarchy changed. Reload the review.");
+      }
+      const name = path.slice(current.path.length + 1);
+      if (name.startsWith(".")) continue;
+      if (!name || seen.has(path)) throw new Error("The source folder hierarchy changed. Reload the review.");
+      seen.add(path);
+      if (Array.isArray(child.children)) stack.push(child);
+      else if (typeof child.extension === "string" && child.extension.toLowerCase() === "md") files.push(child);
+    }
+  }
+  return files;
+}
+
+function unchangedSourcePaths(note, source) {
+  return note.file.path === note.path && visibleSourcePath(note.path, source) &&
+    Array.from(note.assets, ([path, asset]) => asset.file.path === path && visibleSourcePath(path, source)).every(Boolean);
 }
 
 async function preparedNotes(app, config) {
@@ -1004,21 +1041,25 @@ async function preparedNotes(app, config) {
   const folders = new Set();
   const titles = new Map();
   const binaries = new Map();
-  const files = app.vault.getMarkdownFiles().filter(file => file.path.startsWith(config.source + "/"));
+  const files = sourceMarkdownFiles(folder, config.source);
   for (const file of files.sort((a, b) => a.path.localeCompare(b.path))) {
     for (const path of ancestors(file.path, config.source)) folders.add(path);
+    const path = file.path;
+    if (!visibleSourcePath(path, config.source)) throw new Error("The source folder hierarchy changed. Reload the review.");
     const title = normalized(file.basename);
     titles.set(title.toLowerCase(), (titles.get(title.toLowerCase()) ?? 0) + 1);
     let problem = title.length > 255 ? new SyncError("A source title exceeds the Confluence maximum: {title}", { title: title.slice(0, 100) }) : null;
     let source;
     try { source = await app.vault.read(file); } catch (error) { problem = error; source = ""; }
+    if (file.path !== path) throw new Error("The source folder hierarchy changed. Reload the review.");
     const assets = new Map();
     const references = [];
     const units = markdownLines(source, reference => references.push(reference));
     for (const reference of references) {
       const target = vaultReference(reference, file, app, config.source);
       if (!target || target.file.extension?.toLowerCase() === "md") continue;
-      let asset = binaries.get(target.file.path);
+      const assetPath = target.file.path;
+      let asset = binaries.get(assetPath);
       if (!asset) {
         if (target.file.stat.size > MAX_ATTACHMENT_BYTES) {
           problem = new SyncError("An attachment exceeds this plugin's 25 MiB limit: {name}", { name: target.file.name });
@@ -1026,12 +1067,19 @@ async function preparedNotes(app, config) {
         }
         let data;
         try { data = await app.vault.readBinary(target.file); } catch (error) { problem = error; continue; }
+        if (target.file.path !== assetPath || !visibleSourcePath(assetPath, config.source)) {
+          throw new Error("The source folder hierarchy changed. Reload the review.");
+        }
+        if (data.byteLength > MAX_ATTACHMENT_BYTES) {
+          problem = new SyncError("An attachment exceeds this plugin's 25 MiB limit: {name}", { name: target.file.name });
+          continue;
+        }
         const hash = await digest(data);
         const safeName = target.file.name.replace(/[^a-zA-Z0-9_.-]/g, "_").slice(-100);
         asset = { data, hash, file: target.file, name: "cfs-" + hash.slice(0, 24) + "-" + safeName };
-        binaries.set(target.file.path, asset);
+        binaries.set(assetPath, asset);
       }
-      assets.set(target.file.path, asset);
+      assets.set(assetPath, asset);
     }
     const sourceHash = await digest(source);
     const assetHashes = Array.from(assets, ([path, asset]) => [path, asset.hash])
@@ -1039,9 +1087,10 @@ async function preparedNotes(app, config) {
     const inputHash = await digest(JSON.stringify([sourceHash, assetHashes]));
     const dependencies = references.map(reference => vaultReference(reference, file, app, config.source))
       .filter(target => target?.file.extension?.toLowerCase() === "md").map(target => target.file.path);
-    notes.push({ file, path: file.path, title, original: source, units, assets, sourceHash, inputHash, dependencies, problem });
+    notes.push({ file, path, title, original: source, units, assets, sourceHash, inputHash, dependencies, problem });
   }
   for (const note of notes) {
+    if (!unchangedSourcePaths(note, config.source)) throw new Error("The source folder hierarchy changed. Reload the review.");
     if (titles.get(note.title.toLowerCase()) > 1) {
       note.problem = new SyncError("Duplicate page title in the source folder: {title}", { title: note.title });
     }
@@ -1849,6 +1898,27 @@ function checkedSelection(review, current, paths) {
   return selected;
 }
 
+async function checkPublicationInput(app, note, source) {
+  const changed = () => { throw new Error("A selected note or page changed. Refresh the publication review."); };
+  if (!unchangedSourcePaths(note, source)) changed();
+  const inputs = [note.file, ...Array.from(note.assets.values(), asset => asset.file)];
+  const stamp = file => JSON.stringify([file.stat?.ctime, file.stat?.mtime, file.stat?.size]);
+  const revisions = inputs.map(stamp);
+  const text = await app.vault.read(note.file);
+  const sourceHash = await digest(text);
+  if (!unchangedSourcePaths(note, source) || sourceHash !== note.sourceHash || !editorMatches(app, note.path, note.original)) changed();
+  for (const [path, asset] of note.assets) {
+    if (asset.file.path !== path || !visibleSourcePath(path, source)) changed();
+    const data = await app.vault.readBinary(asset.file);
+    if (data.byteLength > MAX_ATTACHMENT_BYTES) changed();
+    const hash = await digest(data);
+    if (!unchangedSourcePaths(note, source) || hash !== asset.hash) changed();
+  }
+  const finalHash = await digest(await app.vault.read(note.file));
+  if (!unchangedSourcePaths(note, source) || finalHash !== note.sourceHash ||
+      !editorMatches(app, note.path, note.original) || inputs.some((file, index) => stamp(file) !== revisions[index])) changed();
+}
+
 async function publishSelection(app, client, profile, save, review, paths, control = {}) {
   if (!client.config.allowPublish) throw new Error("Enable publishing in the plugin settings first.");
   const tree = await preparedNotes(app, client.config);
@@ -1859,10 +1929,7 @@ async function publishSelection(app, client, profile, save, review, paths, contr
   const subset = selectionTree(tree, selected);
   // Re-read after remote preflight. A modal can stay open while local files change.
   for (const note of subset.notes) {
-    if (note.file.path !== note.path || await digest(await app.vault.read(note.file)) !== note.sourceHash ||
-        !editorMatches(app, note.path, note.original)) {
-      throw new Error("A selected note or page changed. Refresh the publication review.");
-    }
+    await checkPublicationInput(app, note, client.config.source);
   }
   const publisher = new Publisher(client, app, profile, save);
   await publisher.plan(subset, catalog);
@@ -1871,16 +1938,7 @@ async function publishSelection(app, client, profile, save, review, paths, contr
     check: async note => {
       await control.check?.(note);
       for (const selectedNote of note ? [note] : subset.notes) {
-        if (selectedNote.file.path !== selectedNote.path ||
-            await digest(await app.vault.read(selectedNote.file)) !== selectedNote.sourceHash ||
-            !editorMatches(app, selectedNote.path, selectedNote.original)) {
-          throw new Error("A selected note or page changed. Refresh the publication review.");
-        }
-        for (const [path, asset] of selectedNote.assets) {
-          if (asset.file.path !== path || await digest(await app.vault.readBinary(asset.file)) !== asset.hash) {
-            throw new Error("A selected note or page changed. Refresh the publication review.");
-          }
-        }
+        await checkPublicationInput(app, selectedNote, client.config.source);
       }
     },
   });
