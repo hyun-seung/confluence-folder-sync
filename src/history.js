@@ -82,9 +82,11 @@ class HistoryModal extends Modal {
       if (!await this.plugin.confirm(this.t("Restore backup"),
         this.t("Restore {path}? The current note will be backed up first.", { path: receipt.path }),
         this.t("Restore backup"))) return;
-      await this.plugin.exclusive(() => this.plugin.recordOperation("Restore backup", () =>
-        restoreNoteBackup(this.app, validatedConfig(this.plugin.data.settings), receipt,
-          item => this.plugin.recordBackup(item))));
+      await this.plugin.exclusive(() => this.plugin.recordOperation("Restore backup", () => {
+        const config = validatedConfig(this.plugin.data.settings);
+        guardMappedPath(this.plugin.data.profiles[publicationTarget(config)] ?? {}, receipt.path);
+        return restoreNoteBackup(this.app, config, receipt, item => this.plugin.recordBackup(item));
+      }));
       this.status = this.t("Backup restored locally.");
     } catch (error) {
       this.status = localizedError(error, this.plugin.language);

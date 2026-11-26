@@ -7,9 +7,9 @@ const fromBundle = new Function("require", "module",
   "ConfluenceCloud, Publisher, preparedNotes, pageTrails, digest, lineChange, fromStorage, " +
   "attachmentInventory, attachmentDiff, reviewHunks, matchHunk, mergeSelected, applyLocalReview, " +
   "KOREAN, syncLanguage, translate, localizedError, SyncError, ApiError, publicationReview, publishSelection, " +
-  "resolveConflict, publicationTarget, rekeySource, saveNoteBackup, restoreNoteBackup };");
+  "resolveConflict, publicationTarget, rekeySource, saveNoteBackup, restoreNoteBackup, automaticCandidates, AutomaticSync };");
 const fakeModule = { exports: {} };
-const lib = fromBundle(() => ({ Plugin: class {}, PluginSettingTab: class {}, Modal: class {} }), fakeModule);
+const lib = fromBundle(() => ({ Plugin: class {}, PluginSettingTab: class {}, Modal: class {}, Notice: class {} }), fakeModule);
 const fixtureConfig = {
   folderUrl: "https://example.atlassian.net/wiki/spaces/DOC/folder/100/Test", source: "Docs",
   inbox: "Incoming", email: "test@example.com", secretId: "fixture",
@@ -342,7 +342,7 @@ function selectionFixture() {
   const files = ["Docs/One.md", "Docs/Two.md", "Docs/Nested/Three.md"].map(path =>
     ({ path, basename: path.split("/").at(-1).slice(0, -3), extension: "md" }));
   const bodies = new Map(files.map(file => [file.path, "# " + file.basename]));
-  const app = { vault: { getFolderByPath: () => ({}), getMarkdownFiles: () => files,
+  const app = { workspace: { getLeavesOfType: () => [] }, vault: { getFolderByPath: () => ({}), getMarkdownFiles: () => files,
     getFileByPath: path => files.find(file => file.path === path), read: async file => bodies.get(file.path) },
     metadataCache: { getFirstLinkpathDest: target => files.find(file => file.basename === target) } };
   const review = async () => lib.publicationReview(app, remote, profile,
@@ -520,4 +520,203 @@ test("operation history records success, failure and cancellation and stays boun
   const cancellation = new Error("cancelled"); cancellation.name = "AbortError";
   await assert.rejects(plugin.recordOperation("Publish selected", async () => { throw cancellation; }), /cancelled/);
   assert.equal(plugin.data.history.at(-1).status, "Cancelled");
+});
+
+test("automatic publication only accepts locally changed linked pages and leaves new, moved and conflicted notes for review", async () => {
+  const fixture = selectionFixture();
+  const { profile, bodies, review, publish, app, config } = fixture;
+  await publish(await review(), ["Docs/One.md", "Docs/Two.md"]);
+  bodies.set("Docs/One.md", "locally changed");
+  bodies.set("Docs/Two.md", "also changed");
+  profile.pages["file:Docs/Two.md"].renamedFrom = "Docs/Old.md";
+  const plan = await review();
+  const tree = await lib.preparedNotes(app, config);
+  assert.deepEqual(lib.automaticCandidates(plan, profile, tree), ["Docs/One.md"]);
+  profile.pages["file:Docs/One.md"].pending = { message: "incomplete" };
+  assert.deepEqual(lib.automaticCandidates(plan, profile, tree), []);
+});
+
+test("automatic checks debounce source events, ignore excluded paths and dispose every timer", () => {
+  let nextId = 1;
+  const timeouts = new Map(); const intervals = new Map();
+  const timers = {
+    setTimeout: (fn, ms) => { const id = nextId++; timeouts.set(id, { fn, ms }); return id; },
+    clearTimeout: id => timeouts.delete(id),
+    setInterval: (fn, ms) => { const id = nextId++; intervals.set(id, { fn, ms }); return id; },
+    clearInterval: id => intervals.delete(id),
+  };
+  const plugin = { data: { settings: { source: "Docs", autoCheck: false, autoMinutes: 5 } } };
+  const scheduler = new lib.AutomaticSync(plugin, timers);
+  scheduler.configure(); assert.equal(timeouts.size + intervals.size, 0);
+  plugin.data.settings.autoCheck = true;
+  scheduler.configure(); assert.equal(timeouts.size, 1); assert.equal(intervals.size, 1);
+  scheduler.clearTimers();
+  scheduler.changed({ path: "Other/Note.md" }); assert.equal(timeouts.size, 0);
+  scheduler.changed({ path: "Docs/Note.md" }); scheduler.changed({ path: "Docs/Another.md" });
+  assert.equal(timeouts.size, 1);
+  scheduler.configure(); assert.equal(timeouts.size, 1); assert.equal(intervals.size, 1);
+  scheduler.dispose(); assert.equal(timeouts.size + intervals.size, 0);
+  scheduler.configure(); assert.equal(timeouts.size + intervals.size, 0);
+});
+
+test("changing an account, scope or publish permission disables unattended uploads", async () => {
+  const plugin = Object.create(fakeModule.exports.prototype);
+  plugin.persist = async () => {};
+  for (const [key, value] of [["source", "Other"], ["folderUrl", fixtureConfig.folderUrl], ["secretId", "new"],
+    ["email", "new@example.com"], ["allowPublish", false], ["autoCheck", false]]) {
+    plugin.data = { settings: { autoPublish: true } };
+    await plugin.configure(key, value);
+    assert.equal(plugin.data.settings.autoPublish, false, key);
+  }
+});
+
+test("duplicate local titles are listed as conflicts without blocking an unrelated selected note", async () => {
+  const { files, bodies, review, publish } = selectionFixture();
+  files.push({ path: "Docs/Other/One.md", basename: "One", extension: "md" });
+  bodies.set("Docs/Other/One.md", "duplicate title");
+  const plan = await review();
+  assert.equal(plan.rows.filter(row => row.status === "Conflict").length, 2);
+  assert.equal(await publish(plan, ["Docs/Two.md"]), 1);
+});
+
+test("returning a moved folder to its prior path reuses its owned folder and page IDs", async () => {
+  const { files, bodies, profile, remote, review, publish } = selectionFixture();
+  const file = files.find(item => item.basename === "Three");
+  await publish(await review(), [file.path]);
+  const first = profile.folders["dir:Docs/Nested"].id;
+  const pageId = profile.pages["file:" + file.path].id;
+  const move = (oldPath, newPath) => {
+    bodies.set(newPath + "/Three.md", bodies.get(file.path)); bodies.delete(file.path);
+    file.path = newPath + "/Three.md"; lib.rekeySource(profile, oldPath, newPath);
+  };
+  move("Docs/Nested", "Docs/Other"); await publish(await review(), [file.path]);
+  move("Docs/Other", "Docs/Nested"); await publish(await review(), [file.path]);
+  assert.equal(profile.folders["dir:Docs/Nested"].id, first);
+  assert.equal(profile.pages["file:" + file.path].id, pageId);
+  assert.equal(remote.records.size, 3);
+});
+
+test("publication rejects source edits made during the final remote check before issuing PUT", async () => {
+  const { app, remote, profile, bodies, review, publish } = selectionFixture();
+  await publish(await review(), ["Docs/One.md"]);
+  bodies.set("Docs/One.md", "reviewed text");
+  const plan = await review();
+  const base = remote.page;
+  let reads = 0;
+  remote.page = async (...args) => {
+    const result = await base(...args);
+    if (++reads === 4) bodies.set("Docs/One.md", "newer local edit");
+    return result;
+  };
+  const updates = remote.stats.updates;
+  await assert.rejects(publish(plan, ["Docs/One.md"]), /changed/);
+  assert.equal(remote.stats.updates, updates);
+  assert.equal(bodies.get("Docs/One.md"), "newer local edit");
+  assert.equal(profile.pages["file:Docs/One.md"].version, 2);
+});
+
+test("publication and automatic candidates reject newer unsaved editor text", async () => {
+  const { app, files, remote, review, publish } = selectionFixture();
+  const plan = await review();
+  app.workspace.getLeavesOfType = () => [{ view: { file: files[0], editor: { getValue: () => "unsaved editor revision" } } }];
+  const fresh = await review();
+  assert.equal(fresh.rows.find(row => row.path === files[0].path).status, "Conflict");
+  await assert.rejects(publish(plan, [files[0].path]), /changed/);
+  assert.equal(remote.stats.creates, 0);
+});
+
+test("undoing a colliding rename clears the conflict without blocking the rename queue", async () => {
+  const plugin = Object.create(fakeModule.exports.prototype);
+  const profile = { pages: { "file:Docs/One.md": { id: "1" }, "file:Docs/Two.md": { id: "2" } }, folders: {} };
+  const before = structuredClone(profile.pages);
+  plugin.data = { settings: { language: "en" }, profiles: { fixture: profile } };
+  plugin.persist = async () => {};
+  plugin.renameEvents = [{ oldPath: "Docs/One.md", newPath: "Docs/Two.md" }, { oldPath: "Docs/Two.md", newPath: "Docs/One.md" }];
+  await plugin.applyRenames();
+  assert.equal(plugin.renameEvents.length, 0);
+  assert.deepEqual(profile.pages, before);
+  assert.equal(profile.renameConflicts.length, 0);
+});
+
+test("cancellation after attachment lookup prevents later upload and page update requests", async () => {
+  const { app, config, remote, profile, bodies, review, publish } = selectionFixture();
+  await publish(await review(), ["Docs/One.md"]);
+  const asset = { path: "Docs/picture.png", name: "picture.png", extension: "png", stat: { size: 2 } };
+  app.metadataCache.getFirstLinkpathDest = () => asset;
+  app.vault.readBinary = async () => new Uint8Array([1, 2]).buffer;
+  bodies.set("Docs/One.md", "![[picture.png]]");
+  const plan = await review();
+  let cancelled = false;
+  const attachments = remote.attachments;
+  remote.attachments = async (...args) => { const result = await attachments(...args); cancelled = true; return result; };
+  const updates = remote.stats.updates;
+  await assert.rejects(lib.publishSelection(app, remote, profile, async () => {}, plan, ["Docs/One.md"], {
+    check: () => { if (cancelled) { const error = new Error("cancelled"); error.name = "AbortError"; throw error; } },
+  }), /cancelled/);
+  assert.equal(remote.stats.uploads, 0);
+  assert.equal(remote.stats.updates, updates);
+});
+
+test("rename collisions remain blocked when a containing folder moves", async () => {
+  const fixture = selectionFixture();
+  const { app, files, bodies, profile, remote, review, publish } = fixture;
+  files.splice(0, files.length,
+    { path: "Docs/Sub/One.md", basename: "One", extension: "md" },
+    { path: "Docs/Sub/Two.md", basename: "Two", extension: "md" });
+  bodies.clear(); bodies.set(files[0].path, "page One"); bodies.set(files[1].path, "page Two");
+  await publish(await review(), files.map(file => file.path));
+  const deletedId = profile.pages["file:Docs/Sub/Two.md"].id;
+  const deletedBody = remote.records.get(deletedId).body.storage.value;
+  bodies.delete(files[1].path); files.pop();
+  bodies.set("Docs/Sub/Two.md", bodies.get(files[0].path)); bodies.delete(files[0].path);
+  files[0].path = "Docs/Sub/Two.md"; files[0].basename = "Two";
+  const plugin = Object.create(fakeModule.exports.prototype);
+  plugin.data = { settings: { language: "en" }, profiles: { fixture: profile } };
+  plugin.persist = async () => {}; plugin.renameEvents = [{ oldPath: "Docs/Sub/One.md", newPath: files[0].path }];
+  await plugin.applyRenames();
+  bodies.set("Docs/Moved/Two.md", bodies.get(files[0].path)); bodies.delete(files[0].path);
+  files[0].path = "Docs/Moved/Two.md";
+  lib.rekeySource(profile, "Docs/Sub", "Docs/Moved");
+  const plan = await review();
+  assert.equal(plan.rows[0].status, "Conflict");
+  await assert.rejects(publish(plan, [files[0].path]), /changed/);
+  assert.equal(remote.records.get(deletedId).body.storage.value, deletedBody);
+});
+
+async function imagePublicationFixture() {
+  const fixture = selectionFixture();
+  const asset = { path: "Docs/picture.png", name: "picture.png", extension: "png", stat: { size: 2 } };
+  fixture.app.metadataCache.getFirstLinkpathDest = () => asset;
+  fixture.app.vault.readBinary = async () => new Uint8Array([1, 2]).buffer;
+  await fixture.publish(await fixture.review(), ["Docs/One.md"]);
+  fixture.bodies.set("Docs/One.md", "![[picture.png]]");
+  return fixture;
+}
+
+test("remote attachment deletion blocks publication without recreating the deleted file", async () => {
+  const { bodies, profile, remote, review, publish } = await imagePublicationFixture();
+  await publish(await review(), ["Docs/One.md"]);
+  const id = profile.pages["file:Docs/One.md"].id;
+  bodies.set("Docs/One.md", "![[picture.png]]\nlocal edit");
+  const plan = await review();
+  const attachments = await remote.attachments(id);
+  assert.equal(attachments.length, 1); attachments.length = 0;
+  const current = await review();
+  assert.equal(current.rows.find(row => row.id === id).status, "Conflict");
+  await assert.rejects(publish(plan, ["Docs/One.md"]), /changed/);
+  assert.equal(remote.stats.uploads, 1);
+});
+
+test("a known immutable attachment upload resumes after interrupted publication without duplicate upload", async () => {
+  const { profile, remote, review, publish } = await imagePublicationFixture();
+  const update = remote.update;
+  remote.update = async () => { throw new Error("interrupted before page update"); };
+  await assert.rejects(publish(await review(), ["Docs/One.md"]), /interrupted/);
+  assert.equal(remote.stats.uploads, 1);
+  remote.update = update;
+  const plan = await review();
+  assert.equal(plan.rows.find(row => row.path === "Docs/One.md").status, "Changed");
+  await publish(plan, ["Docs/One.md"]);
+  assert.equal(remote.stats.uploads, 1);
+  assert.equal(profile.pages["file:Docs/One.md"].remoteAttachments.length, 1);
 });

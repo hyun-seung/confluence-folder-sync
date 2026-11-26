@@ -33,16 +33,16 @@ async function preparedNotes(app, config) {
   if (!folder) throw new Error("The selected source folder does not exist in this vault.");
   const notes = [];
   const folders = new Set();
-  const titles = new Set();
+  const titles = new Map();
   const binaries = new Map();
   const files = app.vault.getMarkdownFiles().filter(file => file.path.startsWith(config.source + "/"));
   for (const file of files.sort((a, b) => a.path.localeCompare(b.path))) {
     for (const path of ancestors(file.path, config.source)) folders.add(path);
     const title = normalized(file.basename);
-    if (titles.has(title.toLowerCase())) throw new SyncError("Duplicate page title in the source folder: {title}", { title });
-    if (title.length > 255) throw new SyncError("A source title exceeds the Confluence maximum: {title}", { title: title.slice(0, 100) });
-    titles.add(title.toLowerCase());
-    const source = await app.vault.read(file);
+    titles.set(title.toLowerCase(), (titles.get(title.toLowerCase()) ?? 0) + 1);
+    let problem = title.length > 255 ? new SyncError("A source title exceeds the Confluence maximum: {title}", { title: title.slice(0, 100) }) : null;
+    let source;
+    try { source = await app.vault.read(file); } catch (error) { problem = error; source = ""; }
     const assets = new Map();
     const references = [];
     const units = markdownLines(source, reference => references.push(reference));
@@ -52,9 +52,11 @@ async function preparedNotes(app, config) {
       let asset = binaries.get(target.file.path);
       if (!asset) {
         if (target.file.stat.size > MAX_ATTACHMENT_BYTES) {
-          throw new SyncError("An attachment exceeds this plugin's 25 MiB limit: {name}", { name: target.file.name });
+          problem = new SyncError("An attachment exceeds this plugin's 25 MiB limit: {name}", { name: target.file.name });
+          continue;
         }
-        const data = await app.vault.readBinary(target.file);
+        let data;
+        try { data = await app.vault.readBinary(target.file); } catch (error) { problem = error; continue; }
         const hash = await digest(data);
         const safeName = target.file.name.replace(/[^a-zA-Z0-9_.-]/g, "_").slice(-100);
         asset = { data, hash, file: target.file, name: "cfs-" + hash.slice(0, 24) + "-" + safeName };
@@ -68,7 +70,12 @@ async function preparedNotes(app, config) {
     const inputHash = await digest(JSON.stringify([sourceHash, assetHashes]));
     const dependencies = references.map(reference => vaultReference(reference, file, app, config.source))
       .filter(target => target?.file.extension?.toLowerCase() === "md").map(target => target.file.path);
-    notes.push({ file, path: file.path, title, units, assets, sourceHash, inputHash, dependencies });
+    notes.push({ file, path: file.path, title, original: source, units, assets, sourceHash, inputHash, dependencies, problem });
+  }
+  for (const note of notes) {
+    if (titles.get(note.title.toLowerCase()) > 1) {
+      note.problem = new SyncError("Duplicate page title in the source folder: {title}", { title: note.title });
+    }
   }
   return { notes, folders: Array.from(folders).sort((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b)) };
 }
@@ -129,7 +136,8 @@ class Publisher {
   }
 
   async inspect(kind, entries, key, title, parent, catalog) {
-    const recorded = entries[key];
+    if (kind === "page") guardMappedPath(this.profile, key.slice(5));
+    const recorded = entries[key] ?? (kind === "folder" ? this.profile.retiredFolders?.[key] : undefined);
     if (recorded?.id) {
       if ((!parent && !(kind === "page" && recorded.renamedFrom)) || !catalog.has(recorded.id)) {
         throw new SyncError("A mapped item is outside the configured folder: {title}", { title });
@@ -169,6 +177,7 @@ class Publisher {
   }
 
   async plan(tree, catalog) {
+    for (const note of tree.notes) if (note.problem) throw note.problem;
     const folders = new Map([[this.client.config.source, this.client.config.folderId]]);
     for (const path of tree.folders) {
       const remote = await this.inspect("folder", this.profile.folders, "dir:" + path,
@@ -181,16 +190,26 @@ class Publisher {
     }
   }
 
-  async claim(kind, entries, key, title, parent, catalog) {
+  async claim(kind, entries, key, title, parent, catalog, check) {
     let remote = await this.inspect(kind, entries, key, title, parent, catalog);
-    const entry = entries[key] ??= { ticket: crypto.randomUUID() };
+    const retired = kind === "folder" ? this.profile.retiredFolders?.[key] : null;
+    const restoring = retired && !entries[key];
+    const entry = entries[key] ??= retired ? structuredClone(retired) : { ticket: crypto.randomUUID() };
+    if (restoring) {
+      delete this.profile.retiredFolders[key];
+      await this.save();
+    }
     if (!remote) {
+      await check?.();
       entry.creating = true;
       await this.save();
+      let requested = false;
       try {
+        await check?.();
+        requested = true;
         remote = await this.client.create(kind, title, parent, placeholder(entry));
       } catch (error) {
-        if (error instanceof ApiError && [400, 401, 403, 404, 413, 429].includes(error.status)) {
+        if (!requested || (error instanceof ApiError && [400, 401, 403, 404, 413, 429].includes(error.status))) {
           delete entry.creating;
           await this.save();
         }
@@ -213,6 +232,7 @@ class Publisher {
   }
 
   async publish(tree, catalog, control = {}) {
+    for (const note of tree.notes) if (note.problem) throw note.problem;
     const folders = new Map([[this.client.config.source, this.client.config.folderId]]);
     const ids = new Map(Object.entries(this.profile.pages)
       .filter(([key, entry]) => key.startsWith("file:" + this.client.config.source + "/") && entry.id && catalog.has(entry.id))
@@ -220,13 +240,13 @@ class Publisher {
     for (const path of tree.folders) {
       await control.check?.();
       const entry = await this.claim("folder", this.profile.folders, "dir:" + path,
-        normalized(path.split("/").at(-1)), folders.get(parentPath(path)), catalog);
+        normalized(path.split("/").at(-1)), folders.get(parentPath(path)), catalog, () => control.check?.());
       folders.set(path, entry.id);
     }
     for (const note of tree.notes) {
       await control.check?.(note);
       const entry = await this.claim("page", this.profile.pages, "file:" + note.file.path, note.title,
-        folders.get(parentPath(note.file.path)), catalog);
+        folders.get(parentPath(note.file.path)), catalog, () => control.check?.(note));
       ids.set(note.file.path, entry.id);
     }
     let changed = 0;
@@ -235,12 +255,18 @@ class Publisher {
       await control.check?.(note);
       const entry = this.profile.pages["file:" + note.file.path];
       const page = await this.client.page(entry.id);
+      await control.check?.(note);
       const parent = folders.get(parentPath(note.file.path));
       const recovery = entry.pending && page.version.number === entry.version + 1 && page.version.message === entry.pending.message;
       confirmParent("page", page, entry, recovery ? entry.pending.parent ?? parent : entry.renamedFrom ? entry.parent : parent,
         recovery ? entry.pending.title ?? note.title : entry.renamedFrom ? entry.title : note.title, this.client.spaceId);
       if (validateVersion(page, entry)) {
         const recoveredInput = entry.pending.preserveMigrated ? entry.pending.inputHash : null;
+        const inventory = attachmentInventory(await this.client.attachments(entry.id));
+        const managed = new Set(Array.from(note.assets.values(), asset => asset.name));
+        const merged = new Map((entry.remoteAttachments ?? []).map(asset => [asset.id, asset]));
+        for (const asset of inventory) if (managed.has(asset.title)) merged.set(asset.id, asset);
+        entry.remoteAttachments = entry.remoteAttachments ? Array.from(merged.values()) : inventory;
         entry.version = page.version.number;
         entry.bodyHash = entry.pending.bodyHash;
         entry.sourceHash = entry.pending.sourceHash;
@@ -250,6 +276,7 @@ class Publisher {
         if (recoveredInput) entry.migratedInputHash = recoveredInput;
         else delete entry.migratedInputHash;
         delete entry.renamedFrom;
+        delete entry.requiresReview;
         await this.save();
       }
       const relocation = page.title !== note.title || String(page.parentId) !== parent;
@@ -267,20 +294,32 @@ class Publisher {
         continue;
       }
       const assets = Array.from(new Map(Array.from(note.assets.values(), asset => [asset.name, asset])).values());
+      const remoteFiles = assets.length || entry.remoteAttachments ? await this.client.attachments(entry.id) : [];
+      if (attachmentsConflict(entry, note, remoteFiles)) {
+        throw new Error("Confluence attachments changed. Review the conflict before publishing.");
+      }
       if (assets.length) {
-        const existing = new Map((await this.client.attachments(entry.id)).map(asset => [asset.title, asset]));
+        const existing = new Map(remoteFiles.map(asset => [asset.title, asset]));
         for (const asset of assets) {
           const found = existing.get(asset.name);
-          if (!found) await this.client.upload(entry.id, asset);
+          if (!found) {
+            await control.check?.(note);
+            await this.client.upload(entry.id, asset);
+          }
           else if (found.comment !== asset.hash || found.fileSize !== asset.data.byteLength) {
             throw new SyncError("An attachment name exists with different content: {title}", { title: note.title });
           }
         }
       }
+      if (entry.remoteAttachments && attachmentsConflict(entry, note, await this.client.attachments(entry.id))) {
+        throw new Error("Confluence attachments changed. Review the conflict before publishing.");
+      }
       const message = "Confluence Folder Sync " + entry.ticket + " " + bodyHash.slice(0, 24);
+      await control.check?.(note);
       entry.pending = { bodyHash, sourceHash: note.sourceHash, message, title: note.title, parent,
         preserveMigrated, inputHash: note.inputHash };
       await this.save();
+      await control.check?.(note);
       const result = await this.client.update(page, body, message, relocation ? { title: note.title, parent } : undefined);
       if (numericId(result.id) !== entry.id || result.version.number !== page.version.number + 1 ||
           (relocation && (result.title !== note.title || String(result.parentId) !== parent))) {
@@ -306,6 +345,7 @@ class Publisher {
       delete entry.pending;
       if (!preserveMigrated) delete entry.migratedInputHash;
       delete entry.renamedFrom;
+      delete entry.requiresReview;
       await this.save();
       changed++;
     }

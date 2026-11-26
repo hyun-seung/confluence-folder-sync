@@ -1,6 +1,7 @@
 const DEFAULT_SETTINGS = {
   folderUrl: "", source: "Confluence source", inbox: "Confluence inbox",
   email: "", secretId: "", allowPublish: false, language: "auto",
+  autoCheck: false, autoPublish: false, autoMinutes: 5,
 };
 
 class Confirmation extends Modal {
@@ -66,6 +67,33 @@ class SyncSettings extends PluginSettingTab {
       .addToggle(toggle => toggle.setValue(settings.allowPublish).onChange(value => plugin.configure("allowPublish", value)));
     new Setting(containerEl).setName(t("Connection")).addButton(button => button.setButtonText(t("Test connection"))
       .onClick(() => plugin.run("connect")));
+    new Setting(containerEl).setName(t("Automatic checks"))
+      .setDesc(t("Check after source changes and at the selected interval while Obsidian is open. No automatic imports or deletions."))
+      .addToggle(toggle => toggle.setValue(settings.autoCheck).onChange(async enabled => {
+        await plugin.configure("autoCheck", enabled);
+        this.display();
+      }));
+    new Setting(containerEl).setName(t("Check interval"))
+      .addDropdown(dropdown => dropdown.addOption("5", t("5 minutes")).addOption("15", t("15 minutes"))
+        .addOption("60", t("60 minutes")).setValue(String(settings.autoMinutes)).setDisabled(!settings.autoCheck)
+        .onChange(value => plugin.configure("autoMinutes", Number(value))));
+    new Setting(containerEl).setName(t("Automatic publication"))
+      .setDesc(t("Upload edits to linked pages only. New notes, moves and conflicts require manual review."))
+      .addToggle(toggle => toggle.setValue(settings.autoPublish).setDisabled(!settings.autoCheck || !settings.allowPublish)
+        .onChange(async enabled => {
+          try {
+            const config = enabled ? validatedConfig(settings) : null;
+            if (enabled && !await plugin.confirm(t("Enable automatic publication"),
+              t("Automatically update linked pages from {source} at {destination} while Obsidian is open?",
+                { source: config.source, destination: new URL(config.origin).hostname + " / " + config.folderId }),
+              t("Enable automatic publication"))) return;
+            await plugin.configure("autoPublish", enabled);
+          } catch (error) {
+            new Notice(localizedError(error, plugin.language), 12000);
+          } finally {
+            this.display();
+          }
+        }));
   }
 }
 
@@ -74,6 +102,9 @@ class ConfluenceFolderSync extends Plugin {
     const stored = await this.loadData() ?? {};
     this.data = { settings: { ...DEFAULT_SETTINGS, ...stored.settings }, profiles: stored.profiles ?? {},
       history: Array.isArray(stored.history) ? stored.history : [], backups: Array.isArray(stored.backups) ? stored.backups : [] };
+    this.data.settings.autoCheck = this.data.settings.autoCheck === true;
+    this.data.settings.autoPublish = this.data.settings.autoPublish === true && this.data.settings.autoCheck &&
+      this.data.settings.allowPublish === true;
     this.saving = Promise.resolve();
     this.renameEvents = [];
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
@@ -92,10 +123,22 @@ class ConfluenceFolderSync extends Plugin {
       { id: "import", name: "Import new Confluence pages", callback: () => this.run("import") },
     ];
     this.registerCommands();
+    this.automatic = new AutomaticSync(this);
+    for (const event of ["create", "modify", "delete"]) {
+      this.registerEvent(this.app.vault.on(event, file => this.automatic.changed(file)));
+    }
+    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.automatic.changed(file, oldPath)));
+    this.register(() => this.automatic.dispose());
+    this.app.workspace.onLayoutReady(() => this.automatic.configure());
   }
 
   get language() {
     return syncLanguage(this.data.settings.language, typeof getLanguage === "function" ? getLanguage() : "en");
+  }
+
+  onunload() {
+    this.unloaded = true;
+    this.automatic?.dispose();
   }
 
   t(message, values) {
@@ -126,7 +169,17 @@ class ConfluenceFolderSync extends Plugin {
         const event = this.renameEvents[0];
         const previous = structuredClone(this.data.profiles);
         try {
-          for (const profile of Object.values(this.data.profiles)) rekeySource(profile, event.oldPath, event.newPath);
+          for (const profile of Object.values(this.data.profiles)) {
+            try {
+              rekeySource(profile, event.oldPath, event.newPath);
+            } catch (error) {
+              if (error.code !== "RENAME_COLLISION") throw error;
+              profile.renameConflicts ??= [];
+              profile.renameConflicts = profile.renameConflicts.filter(item => item.to !== event.oldPath);
+              profile.renameConflicts.push({ from: error.from, to: event.newPath });
+              new Notice(localizedError(error, this.language), 12000);
+            }
+          }
           await this.persist();
           this.renameEvents.shift();
         } catch (error) {
@@ -140,9 +193,14 @@ class ConfluenceFolderSync extends Plugin {
 
   async configure(key, value) {
     this.data.settings[key] = value;
+    if (["folderUrl", "source", "email", "secretId"].includes(key) ||
+        (key === "allowPublish" && !value) || (key === "autoCheck" && !value)) {
+      this.data.settings.autoPublish = false;
+    }
     try {
       await this.persist();
       if (key === "language") this.registerCommands();
+      this.automatic?.configure();
     } catch {
       new Notice(this.t("Confluence Folder Sync could not save the settings."));
     }
@@ -153,6 +211,7 @@ class ConfluenceFolderSync extends Plugin {
   }
 
   async exclusive(task) {
+    if (this.unloaded) throw new Error("The plugin is disabled. Reopen it before continuing.");
     if (this.running) throw new Error("A Confluence command is already running in this vault.");
     await this.applyRenames();
     if (this.running) throw new Error("A Confluence command is already running in this vault.");
@@ -195,7 +254,7 @@ class ConfluenceFolderSync extends Plugin {
       throw error;
     } finally {
       item.finished = new Date().toISOString();
-      await this.persist();
+      if (!this.unloaded) await this.persist();
     }
   }
 

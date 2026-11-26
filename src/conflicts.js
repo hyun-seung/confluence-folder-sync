@@ -54,6 +54,7 @@ async function resolveConflict(app, client, profile, save, review, text, recordB
   entry.bodyHash = review.bodyHash;
   entry.sourceHash = await digest(review.remote);
   entry.remoteAttachments = review.inventory;
+  entry.requiresReview = true;
   delete entry.migratedInputHash;
   delete entry.inputHash;
   try {

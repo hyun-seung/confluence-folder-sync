@@ -89,6 +89,7 @@ function mappedSource(profile, id, source) {
     key.startsWith("file:") && entry.id === id && key.slice(5).startsWith(source + "/"));
   if (matches.length !== 1) throw new Error("This page is not linked to one published note in the active source folder.");
   const [[key, entry]] = matches;
+  guardMappedPath(profile, key.slice(5));
   return { path: key.slice(5), entry };
 }
 

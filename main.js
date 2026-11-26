@@ -2,6 +2,23 @@
 
 // English messages are stable translation keys. Interpolate values only after lookup.
 const KOREAN = {
+  "Confluence attachments changed. Review the conflict before publishing.": "Confluence 첨부파일이 변경되었습니다. 발행 전에 충돌을 검토하세요.",
+  "Save the open editor before publication.": "발행하기 전에 열린 편집기의 변경을 저장하세요.",
+  "A local rename has a conflicting page mapping. Undo the move or choose a new path.": "이름 변경 대상에 다른 페이지 연결이 있습니다. 이동을 되돌리거나 다른 경로로 이동하세요.",
+  "Automatic checks": "자동 변경 확인",
+  "Check after source changes and at the selected interval while Obsidian is open. No automatic imports or deletions.": "Obsidian 실행 중 원본 변경 후와 설정한 주기에 변경을 확인합니다. 가져오기와 삭제를 자동으로 실행하지 않습니다.",
+  "Check interval": "확인 주기",
+  "5 minutes": "5분",
+  "15 minutes": "15분",
+  "60 minutes": "60분",
+  "Automatic publication": "자동 발행",
+  "Upload edits to linked pages only. New notes, moves and conflicts require manual review.": "기존 연결 페이지의 변경만 업로드합니다. 신규 문서, 이동과 충돌은 수동 검토가 필요합니다.",
+  "Enable automatic publication": "자동 발행 허용",
+  "Automatically update linked pages from {source} at {destination} while Obsidian is open?": "Obsidian 실행 중 {source}에서 {destination}의 기존 연결 페이지를 자동으로 갱신하도록 허용할까요?",
+  "Automatic check": "자동 변경 확인",
+  "Automatic publish": "자동 발행",
+  "Automatic review: {new} new, {changed} changed, {conflicts} conflicts, {remote} remote changes, {published} published.": "자동 확인 — 신규 {new}개, 수정 {changed}개, 충돌 {conflicts}개, 원격 변경 {remote}개, 자동 발행 {published}개.",
+  "The plugin is disabled. Reopen it before continuing.": "플러그인이 비활성화되었습니다. 다시 활성화한 뒤 실행하세요.",
   "The linked note is outside the configured source folder.": "연결된 노트가 설정한 발행 폴더 밖에 있습니다.",
   "This backup belongs to another source or destination.": "이 백업은 다른 발행 범위나 대상에 속합니다.",
   "The note or backup is unavailable.": "원본 노트나 백업을 찾을 수 없습니다.",
@@ -938,16 +955,16 @@ async function preparedNotes(app, config) {
   if (!folder) throw new Error("The selected source folder does not exist in this vault.");
   const notes = [];
   const folders = new Set();
-  const titles = new Set();
+  const titles = new Map();
   const binaries = new Map();
   const files = app.vault.getMarkdownFiles().filter(file => file.path.startsWith(config.source + "/"));
   for (const file of files.sort((a, b) => a.path.localeCompare(b.path))) {
     for (const path of ancestors(file.path, config.source)) folders.add(path);
     const title = normalized(file.basename);
-    if (titles.has(title.toLowerCase())) throw new SyncError("Duplicate page title in the source folder: {title}", { title });
-    if (title.length > 255) throw new SyncError("A source title exceeds the Confluence maximum: {title}", { title: title.slice(0, 100) });
-    titles.add(title.toLowerCase());
-    const source = await app.vault.read(file);
+    titles.set(title.toLowerCase(), (titles.get(title.toLowerCase()) ?? 0) + 1);
+    let problem = title.length > 255 ? new SyncError("A source title exceeds the Confluence maximum: {title}", { title: title.slice(0, 100) }) : null;
+    let source;
+    try { source = await app.vault.read(file); } catch (error) { problem = error; source = ""; }
     const assets = new Map();
     const references = [];
     const units = markdownLines(source, reference => references.push(reference));
@@ -957,9 +974,11 @@ async function preparedNotes(app, config) {
       let asset = binaries.get(target.file.path);
       if (!asset) {
         if (target.file.stat.size > MAX_ATTACHMENT_BYTES) {
-          throw new SyncError("An attachment exceeds this plugin's 25 MiB limit: {name}", { name: target.file.name });
+          problem = new SyncError("An attachment exceeds this plugin's 25 MiB limit: {name}", { name: target.file.name });
+          continue;
         }
-        const data = await app.vault.readBinary(target.file);
+        let data;
+        try { data = await app.vault.readBinary(target.file); } catch (error) { problem = error; continue; }
         const hash = await digest(data);
         const safeName = target.file.name.replace(/[^a-zA-Z0-9_.-]/g, "_").slice(-100);
         asset = { data, hash, file: target.file, name: "cfs-" + hash.slice(0, 24) + "-" + safeName };
@@ -973,7 +992,12 @@ async function preparedNotes(app, config) {
     const inputHash = await digest(JSON.stringify([sourceHash, assetHashes]));
     const dependencies = references.map(reference => vaultReference(reference, file, app, config.source))
       .filter(target => target?.file.extension?.toLowerCase() === "md").map(target => target.file.path);
-    notes.push({ file, path: file.path, title, units, assets, sourceHash, inputHash, dependencies });
+    notes.push({ file, path: file.path, title, original: source, units, assets, sourceHash, inputHash, dependencies, problem });
+  }
+  for (const note of notes) {
+    if (titles.get(note.title.toLowerCase()) > 1) {
+      note.problem = new SyncError("Duplicate page title in the source folder: {title}", { title: note.title });
+    }
   }
   return { notes, folders: Array.from(folders).sort((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b)) };
 }
@@ -1034,7 +1058,8 @@ class Publisher {
   }
 
   async inspect(kind, entries, key, title, parent, catalog) {
-    const recorded = entries[key];
+    if (kind === "page") guardMappedPath(this.profile, key.slice(5));
+    const recorded = entries[key] ?? (kind === "folder" ? this.profile.retiredFolders?.[key] : undefined);
     if (recorded?.id) {
       if ((!parent && !(kind === "page" && recorded.renamedFrom)) || !catalog.has(recorded.id)) {
         throw new SyncError("A mapped item is outside the configured folder: {title}", { title });
@@ -1074,6 +1099,7 @@ class Publisher {
   }
 
   async plan(tree, catalog) {
+    for (const note of tree.notes) if (note.problem) throw note.problem;
     const folders = new Map([[this.client.config.source, this.client.config.folderId]]);
     for (const path of tree.folders) {
       const remote = await this.inspect("folder", this.profile.folders, "dir:" + path,
@@ -1086,16 +1112,26 @@ class Publisher {
     }
   }
 
-  async claim(kind, entries, key, title, parent, catalog) {
+  async claim(kind, entries, key, title, parent, catalog, check) {
     let remote = await this.inspect(kind, entries, key, title, parent, catalog);
-    const entry = entries[key] ??= { ticket: crypto.randomUUID() };
+    const retired = kind === "folder" ? this.profile.retiredFolders?.[key] : null;
+    const restoring = retired && !entries[key];
+    const entry = entries[key] ??= retired ? structuredClone(retired) : { ticket: crypto.randomUUID() };
+    if (restoring) {
+      delete this.profile.retiredFolders[key];
+      await this.save();
+    }
     if (!remote) {
+      await check?.();
       entry.creating = true;
       await this.save();
+      let requested = false;
       try {
+        await check?.();
+        requested = true;
         remote = await this.client.create(kind, title, parent, placeholder(entry));
       } catch (error) {
-        if (error instanceof ApiError && [400, 401, 403, 404, 413, 429].includes(error.status)) {
+        if (!requested || (error instanceof ApiError && [400, 401, 403, 404, 413, 429].includes(error.status))) {
           delete entry.creating;
           await this.save();
         }
@@ -1118,6 +1154,7 @@ class Publisher {
   }
 
   async publish(tree, catalog, control = {}) {
+    for (const note of tree.notes) if (note.problem) throw note.problem;
     const folders = new Map([[this.client.config.source, this.client.config.folderId]]);
     const ids = new Map(Object.entries(this.profile.pages)
       .filter(([key, entry]) => key.startsWith("file:" + this.client.config.source + "/") && entry.id && catalog.has(entry.id))
@@ -1125,13 +1162,13 @@ class Publisher {
     for (const path of tree.folders) {
       await control.check?.();
       const entry = await this.claim("folder", this.profile.folders, "dir:" + path,
-        normalized(path.split("/").at(-1)), folders.get(parentPath(path)), catalog);
+        normalized(path.split("/").at(-1)), folders.get(parentPath(path)), catalog, () => control.check?.());
       folders.set(path, entry.id);
     }
     for (const note of tree.notes) {
       await control.check?.(note);
       const entry = await this.claim("page", this.profile.pages, "file:" + note.file.path, note.title,
-        folders.get(parentPath(note.file.path)), catalog);
+        folders.get(parentPath(note.file.path)), catalog, () => control.check?.(note));
       ids.set(note.file.path, entry.id);
     }
     let changed = 0;
@@ -1140,12 +1177,18 @@ class Publisher {
       await control.check?.(note);
       const entry = this.profile.pages["file:" + note.file.path];
       const page = await this.client.page(entry.id);
+      await control.check?.(note);
       const parent = folders.get(parentPath(note.file.path));
       const recovery = entry.pending && page.version.number === entry.version + 1 && page.version.message === entry.pending.message;
       confirmParent("page", page, entry, recovery ? entry.pending.parent ?? parent : entry.renamedFrom ? entry.parent : parent,
         recovery ? entry.pending.title ?? note.title : entry.renamedFrom ? entry.title : note.title, this.client.spaceId);
       if (validateVersion(page, entry)) {
         const recoveredInput = entry.pending.preserveMigrated ? entry.pending.inputHash : null;
+        const inventory = attachmentInventory(await this.client.attachments(entry.id));
+        const managed = new Set(Array.from(note.assets.values(), asset => asset.name));
+        const merged = new Map((entry.remoteAttachments ?? []).map(asset => [asset.id, asset]));
+        for (const asset of inventory) if (managed.has(asset.title)) merged.set(asset.id, asset);
+        entry.remoteAttachments = entry.remoteAttachments ? Array.from(merged.values()) : inventory;
         entry.version = page.version.number;
         entry.bodyHash = entry.pending.bodyHash;
         entry.sourceHash = entry.pending.sourceHash;
@@ -1155,6 +1198,7 @@ class Publisher {
         if (recoveredInput) entry.migratedInputHash = recoveredInput;
         else delete entry.migratedInputHash;
         delete entry.renamedFrom;
+        delete entry.requiresReview;
         await this.save();
       }
       const relocation = page.title !== note.title || String(page.parentId) !== parent;
@@ -1172,20 +1216,32 @@ class Publisher {
         continue;
       }
       const assets = Array.from(new Map(Array.from(note.assets.values(), asset => [asset.name, asset])).values());
+      const remoteFiles = assets.length || entry.remoteAttachments ? await this.client.attachments(entry.id) : [];
+      if (attachmentsConflict(entry, note, remoteFiles)) {
+        throw new Error("Confluence attachments changed. Review the conflict before publishing.");
+      }
       if (assets.length) {
-        const existing = new Map((await this.client.attachments(entry.id)).map(asset => [asset.title, asset]));
+        const existing = new Map(remoteFiles.map(asset => [asset.title, asset]));
         for (const asset of assets) {
           const found = existing.get(asset.name);
-          if (!found) await this.client.upload(entry.id, asset);
+          if (!found) {
+            await control.check?.(note);
+            await this.client.upload(entry.id, asset);
+          }
           else if (found.comment !== asset.hash || found.fileSize !== asset.data.byteLength) {
             throw new SyncError("An attachment name exists with different content: {title}", { title: note.title });
           }
         }
       }
+      if (entry.remoteAttachments && attachmentsConflict(entry, note, await this.client.attachments(entry.id))) {
+        throw new Error("Confluence attachments changed. Review the conflict before publishing.");
+      }
       const message = "Confluence Folder Sync " + entry.ticket + " " + bodyHash.slice(0, 24);
+      await control.check?.(note);
       entry.pending = { bodyHash, sourceHash: note.sourceHash, message, title: note.title, parent,
         preserveMigrated, inputHash: note.inputHash };
       await this.save();
+      await control.check?.(note);
       const result = await this.client.update(page, body, message, relocation ? { title: note.title, parent } : undefined);
       if (numericId(result.id) !== entry.id || result.version.number !== page.version.number + 1 ||
           (relocation && (result.title !== note.title || String(result.parentId) !== parent))) {
@@ -1211,6 +1267,7 @@ class Publisher {
       delete entry.pending;
       if (!preserveMigrated) delete entry.migratedInputHash;
       delete entry.renamedFrom;
+      delete entry.requiresReview;
       await this.save();
       changed++;
     }
@@ -1557,6 +1614,7 @@ function mappedSource(profile, id, source) {
     key.startsWith("file:") && entry.id === id && key.slice(5).startsWith(source + "/"));
   if (matches.length !== 1) throw new Error("This page is not linked to one published note in the active source folder.");
   const [[key, entry]] = matches;
+  guardMappedPath(profile, key.slice(5));
   return { path: key.slice(5), entry };
 }
 
@@ -1627,6 +1685,20 @@ function publicationTarget(config) {
   return JSON.stringify([config.origin, config.folderId, config.source]);
 }
 
+function attachmentsConflict(entry, note, files) {
+  if (!entry.remoteAttachments) return false;
+  const desired = new Map(Array.from(note.assets.values(), asset => [asset.name, asset]));
+  const raw = new Map(files.map(file => [file.title, file]));
+  return attachmentDiff(entry.remoteAttachments, attachmentInventory(files)).some(change => {
+    const asset = desired.get(change.title);
+    const file = raw.get(change.title);
+    // A known content-addressed upload may have succeeded before a prior request
+    // was interrupted. Existing/deleted/edited remote versions still conflict.
+    return change.kind !== "Added" || !asset || change.version !== 1 ||
+      file?.comment !== asset.hash || file?.fileSize !== asset.data.byteLength;
+  });
+}
+
 function selectionTree(tree, paths) {
   const selected = new Set(paths);
   const notes = tree.notes.filter(note => selected.has(note.path));
@@ -1660,11 +1732,20 @@ async function publicationReview(app, client, profile, tree, catalog) {
       renamedFrom: entry?.renamedFrom ?? null,
       dependencies: Array.from(new Set(note.dependencies.filter(path => path !== note.path && !ids.has(path)))) };
     try {
+      if (note.problem) throw note.problem;
+      if (!editorMatches(app, note.path, note.original)) throw new Error("Save the open editor before publication.");
       if (parent?.error) throw parent.error;
       const page = await publisher.inspect("page", profile.pages, "file:" + note.path,
         note.title, parent?.id ?? null, catalog);
       row.version = page?.version.number ?? null;
       row.parent = page ? String(page.parentId) : null;
+      if (page && entry.remoteAttachments) {
+        const files = await client.attachments(page.id);
+        row.inventoryHash = await digest(JSON.stringify(attachmentInventory(files)));
+        if (attachmentsConflict(entry, note, files)) {
+          throw new Error("Confluence attachments changed. Review the conflict before publishing.");
+        }
+      }
       row.outputHash = await digest(resolvedStorage(note, app, client, ids));
       row.status = !page ? "New" : entry.creating || entry.pending ||
         page.title !== note.title || String(page.parentId) !== parent?.id ? "Changed" :
@@ -1709,7 +1790,8 @@ async function publishSelection(app, client, profile, save, review, paths, contr
   const subset = selectionTree(tree, selected);
   // Re-read after remote preflight. A modal can stay open while local files change.
   for (const note of subset.notes) {
-    if (note.file.path !== note.path || await digest(await app.vault.read(note.file)) !== note.sourceHash) {
+    if (note.file.path !== note.path || await digest(await app.vault.read(note.file)) !== note.sourceHash ||
+        !editorMatches(app, note.path, note.original)) {
       throw new Error("A selected note or page changed. Refresh the publication review.");
     }
   }
@@ -1721,7 +1803,8 @@ async function publishSelection(app, client, profile, save, review, paths, contr
       await control.check?.(note);
       for (const selectedNote of note ? [note] : subset.notes) {
         if (selectedNote.file.path !== selectedNote.path ||
-            await digest(await app.vault.read(selectedNote.file)) !== selectedNote.sourceHash) {
+            await digest(await app.vault.read(selectedNote.file)) !== selectedNote.sourceHash ||
+            !editorMatches(app, selectedNote.path, selectedNote.original)) {
           throw new Error("A selected note or page changed. Refresh the publication review.");
         }
         for (const [path, asset] of selectedNote.assets) {
@@ -1837,7 +1920,7 @@ class PublicationModal extends Modal {
       const updated = await this.plugin.operation("Publish selected", ({ client, profile, save }) =>
         publishSelection(this.app, client, profile, save, this.review, paths, {
           check: () => {
-            if (this.cancelled) {
+            if (this.cancelled || this.plugin.unloaded) {
               const error = new Error("The operation was cancelled. Completed changes are preserved.");
               error.name = "AbortError";
               throw error;
@@ -1920,6 +2003,7 @@ async function resolveConflict(app, client, profile, save, review, text, recordB
   entry.bodyHash = review.bodyHash;
   entry.sourceHash = await digest(review.remote);
   entry.remoteAttachments = review.inventory;
+  entry.requiresReview = true;
   delete entry.migratedInputHash;
   delete entry.inputHash;
   try {
@@ -2011,6 +2095,17 @@ class ConflictModal extends Modal {
 }
 
 function rekeySource(profile, oldPath, newPath) {
+  const conflict = profile.renameConflicts?.filter(item => pathIn(oldPath, item.to))
+    .sort((a, b) => b.to.length - a.to.length)[0];
+  const exactConflict = conflict && conflict.to === oldPath;
+  if (exactConflict && newPath === conflict.from) {
+    profile.renameConflicts = profile.renameConflicts.filter(item => item !== conflict);
+    return 0;
+  }
+  if (conflict) {
+    oldPath = conflict.from + oldPath.slice(conflict.to.length);
+    if (pathIn(newPath, conflict.to)) newPath = conflict.from + newPath.slice(conflict.to.length);
+  }
   const moves = Object.entries(profile.pages).filter(([key]) => key.startsWith("file:") &&
     pathIn(key.slice(5), oldPath)).map(([key, entry]) => ({
       key, entry, next: "file:" + newPath + key.slice(5 + oldPath.length),
@@ -2018,7 +2113,10 @@ function rekeySource(profile, oldPath, newPath) {
   const moving = new Set(moves.map(item => item.key));
   for (const item of moves) {
     if (profile.pages[item.next] && !moving.has(item.next)) {
-      throw new Error("A moved note already has another page mapping. Resolve its link first.");
+      const error = new Error("A moved note already has another page mapping. Resolve its link first.");
+      error.code = "RENAME_COLLISION";
+      error.from = oldPath;
+      throw error;
     }
   }
   for (const item of moves) delete profile.pages[item.key];
@@ -2026,12 +2124,27 @@ function rekeySource(profile, oldPath, newPath) {
     item.entry.renamedFrom ??= item.key.slice(5);
     profile.pages[item.next] = item.entry;
   }
+  if (exactConflict) profile.renameConflicts = profile.renameConflicts.filter(item => item !== conflict);
+  for (const item of profile.renameConflicts ?? []) {
+    if (pathIn(item.from, oldPath)) item.from = newPath + item.from.slice(oldPath.length);
+    if (pathIn(item.to, oldPath)) item.to = newPath + item.to.slice(oldPath.length);
+  }
   // Folder titles cannot be changed through the v2 Folder API. Rebuild only the
   // selected destination branches, reparent pages, and preserve old folders.
   for (const key of Object.keys(profile.folders)) {
-    if (key.startsWith("dir:") && pathIn(key.slice(4), oldPath)) delete profile.folders[key];
+    if (key.startsWith("dir:") && pathIn(key.slice(4), oldPath)) {
+      profile.retiredFolders ??= {};
+      profile.retiredFolders[key] = profile.folders[key];
+      delete profile.folders[key];
+    }
   }
   return moves.length;
+}
+
+function guardMappedPath(profile, path) {
+  if (profile.renameConflicts?.some(item => pathIn(path, item.from) || pathIn(path, item.to))) {
+    throw new Error("A local rename has a conflicting page mapping. Undo the move or choose a new path.");
+  }
 }
 
 async function saveNoteBackup(app, config, path, original, after, record = async () => {}) {
@@ -2118,9 +2231,11 @@ class HistoryModal extends Modal {
       if (!await this.plugin.confirm(this.t("Restore backup"),
         this.t("Restore {path}? The current note will be backed up first.", { path: receipt.path }),
         this.t("Restore backup"))) return;
-      await this.plugin.exclusive(() => this.plugin.recordOperation("Restore backup", () =>
-        restoreNoteBackup(this.app, validatedConfig(this.plugin.data.settings), receipt,
-          item => this.plugin.recordBackup(item))));
+      await this.plugin.exclusive(() => this.plugin.recordOperation("Restore backup", () => {
+        const config = validatedConfig(this.plugin.data.settings);
+        guardMappedPath(this.plugin.data.profiles[publicationTarget(config)] ?? {}, receipt.path);
+        return restoreNoteBackup(this.app, config, receipt, item => this.plugin.recordBackup(item));
+      }));
       this.status = this.t("Backup restored locally.");
     } catch (error) {
       this.status = localizedError(error, this.plugin.language);
@@ -2132,6 +2247,127 @@ class HistoryModal extends Modal {
 
   onClose() {
     this.contentEl.empty();
+  }
+}
+
+function automaticCandidates(review, profile, tree) {
+  const notes = new Map(tree.notes.map(note => [note.path, note]));
+  return review.rows.filter(row => {
+    const entry = profile.pages["file:" + row.path];
+    const note = notes.get(row.path);
+    const baseline = entry?.inputHash ?? entry?.migratedInputHash;
+    return row.status === "Changed" && row.id && entry && note && !entry.renamedFrom &&
+      entry.bodyHash && entry.sourceHash && !entry.requiresReview && !entry.pending && !entry.creating && !row.dependencies.length &&
+      (baseline ? baseline !== note.inputHash : entry.sourceHash !== note.sourceHash);
+  }).map(row => row.path);
+}
+
+class AutomaticSync {
+  constructor(plugin, timers = globalThis) {
+    this.plugin = plugin;
+    this.timers = timers;
+  }
+
+  configure() {
+    if (this.disposed) return;
+    this.clearTimers();
+    if (!this.plugin.data.settings.autoCheck) return;
+    const minutes = [5, 15, 60].includes(this.plugin.data.settings.autoMinutes) ? this.plugin.data.settings.autoMinutes : 5;
+    this.interval = this.timers.setInterval(() => this.schedule(), minutes * 60_000);
+    this.schedule();
+  }
+
+  changed(file, oldPath) {
+    const source = this.plugin.data.settings.source + "/";
+    if (file.path.startsWith(source) || oldPath?.startsWith(source)) this.schedule();
+  }
+
+  schedule(delay = 5000) {
+    if (this.disposed || !this.plugin.data.settings.autoCheck || this.timer) return;
+    this.timer = this.timers.setTimeout(() => {
+      this.timer = null;
+      void this.run();
+    }, delay);
+  }
+
+  async run() {
+    const plugin = this.plugin;
+    if (this.disposed || !plugin.data.settings.autoCheck) return;
+    if (this.busy || plugin.running || Date.now() - (this.lastAttempt ?? 0) < 60_000) {
+      this.schedule(60_000);
+      return;
+    }
+    this.busy = true;
+    this.lastAttempt = Date.now();
+    try {
+      const result = await plugin.operation("Automatic check", async ({ client, profile, save }) => {
+        const tree = await preparedNotes(plugin.app, client.config);
+        const catalog = await client.catalog();
+        const review = await publicationReview(plugin.app, client, profile, tree, catalog);
+        const remote = await remotePages(client, catalog);
+        const known = new Set([...Object.values(profile.pages).map(entry => entry.id), ...Object.keys(profile.imports)]);
+        const remoteChanges = new Set();
+        const tracked = [];
+        for (const [id, page] of remote.pages) {
+          const entry = Object.values(profile.pages).find(item => item.id === id) ?? profile.imports[id];
+          if (!known.has(id) || entry?.version !== page.version.number || entry?.title !== page.title ||
+              entry?.parent !== String(page.parentId)) remoteChanges.add(id);
+          if (entry?.remoteAttachments) tracked.push([id, entry]);
+        }
+        for (let start = 0; start < tracked.length; start += 4) {
+          await Promise.all(tracked.slice(start, start + 4).map(async ([id, entry]) => {
+            const inventory = attachmentInventory(await client.attachments(id));
+            if (attachmentDiff(entry.remoteAttachments, inventory).length) remoteChanges.add(id);
+          }));
+        }
+        let published = 0;
+        if (plugin.data.settings.autoPublish && plugin.data.settings.allowPublish) {
+          const paths = automaticCandidates(review, profile, tree);
+          if (paths.length) {
+            published = await plugin.recordOperation("Automatic publish", () =>
+              publishSelection(plugin.app, client, profile, save, review, paths, {
+                check: () => {
+                  if (this.disposed || !plugin.data.settings.autoCheck || !plugin.data.settings.autoPublish ||
+                      !plugin.data.settings.allowPublish || publicationTarget(validatedConfig(plugin.data.settings)) !== review.target) {
+                    const error = new Error("The operation was cancelled. Completed changes are preserved.");
+                    error.name = "AbortError";
+                    throw error;
+                  }
+                },
+              }));
+          }
+        }
+        return { review, remoteChanges: remoteChanges.size, published };
+      });
+      const counts = Object.fromEntries(["New", "Changed", "Conflict"].map(status =>
+        [status, result.review.rows.filter(row => row.status === status).length]));
+      const message = plugin.t("Automatic review: {new} new, {changed} changed, {conflicts} conflicts, {remote} remote changes, {published} published.",
+        { new: counts.New, changed: counts.Changed, conflicts: counts.Conflict, remote: result.remoteChanges, published: result.published });
+      plugin.automaticStatus = new Date().toLocaleTimeString() + " · " + message;
+      if ((counts.New || counts.Changed || counts.Conflict || result.remoteChanges || result.published) && message !== this.lastMessage) {
+        new Notice(message, 10000);
+      }
+      this.lastMessage = message;
+    } catch (error) {
+      const message = localizedError(error, plugin.language);
+      plugin.automaticStatus = message;
+      if (message !== this.lastMessage) new Notice(message, 12000);
+      this.lastMessage = message;
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  clearTimers() {
+    if (this.timer) this.timers.clearTimeout(this.timer);
+    if (this.interval) this.timers.clearInterval(this.interval);
+    this.timer = null;
+    this.interval = null;
+  }
+
+  dispose() {
+    this.disposed = true;
+    this.clearTimers();
   }
 }
 
@@ -2161,6 +2397,7 @@ class SyncDashboard extends Modal {
     contentEl.empty();
     contentEl.createEl("h2", { text: "Confluence Folder Sync" });
     contentEl.createEl("p", { text: this.status, attr: { role: "status", "aria-live": "polite" } });
+    if (this.plugin.automaticStatus) contentEl.createEl("p", { text: this.plugin.automaticStatus });
     const button = (label, callback, disabled = false) => component =>
       component.setButtonText(t(label)).setDisabled(this.busy || disabled).onClick(callback);
     const command = action => () => {
@@ -2419,6 +2656,7 @@ class SyncDashboard extends Modal {
 const DEFAULT_SETTINGS = {
   folderUrl: "", source: "Confluence source", inbox: "Confluence inbox",
   email: "", secretId: "", allowPublish: false, language: "auto",
+  autoCheck: false, autoPublish: false, autoMinutes: 5,
 };
 
 class Confirmation extends Modal {
@@ -2484,6 +2722,33 @@ class SyncSettings extends PluginSettingTab {
       .addToggle(toggle => toggle.setValue(settings.allowPublish).onChange(value => plugin.configure("allowPublish", value)));
     new Setting(containerEl).setName(t("Connection")).addButton(button => button.setButtonText(t("Test connection"))
       .onClick(() => plugin.run("connect")));
+    new Setting(containerEl).setName(t("Automatic checks"))
+      .setDesc(t("Check after source changes and at the selected interval while Obsidian is open. No automatic imports or deletions."))
+      .addToggle(toggle => toggle.setValue(settings.autoCheck).onChange(async enabled => {
+        await plugin.configure("autoCheck", enabled);
+        this.display();
+      }));
+    new Setting(containerEl).setName(t("Check interval"))
+      .addDropdown(dropdown => dropdown.addOption("5", t("5 minutes")).addOption("15", t("15 minutes"))
+        .addOption("60", t("60 minutes")).setValue(String(settings.autoMinutes)).setDisabled(!settings.autoCheck)
+        .onChange(value => plugin.configure("autoMinutes", Number(value))));
+    new Setting(containerEl).setName(t("Automatic publication"))
+      .setDesc(t("Upload edits to linked pages only. New notes, moves and conflicts require manual review."))
+      .addToggle(toggle => toggle.setValue(settings.autoPublish).setDisabled(!settings.autoCheck || !settings.allowPublish)
+        .onChange(async enabled => {
+          try {
+            const config = enabled ? validatedConfig(settings) : null;
+            if (enabled && !await plugin.confirm(t("Enable automatic publication"),
+              t("Automatically update linked pages from {source} at {destination} while Obsidian is open?",
+                { source: config.source, destination: new URL(config.origin).hostname + " / " + config.folderId }),
+              t("Enable automatic publication"))) return;
+            await plugin.configure("autoPublish", enabled);
+          } catch (error) {
+            new Notice(localizedError(error, plugin.language), 12000);
+          } finally {
+            this.display();
+          }
+        }));
   }
 }
 
@@ -2492,6 +2757,9 @@ class ConfluenceFolderSync extends Plugin {
     const stored = await this.loadData() ?? {};
     this.data = { settings: { ...DEFAULT_SETTINGS, ...stored.settings }, profiles: stored.profiles ?? {},
       history: Array.isArray(stored.history) ? stored.history : [], backups: Array.isArray(stored.backups) ? stored.backups : [] };
+    this.data.settings.autoCheck = this.data.settings.autoCheck === true;
+    this.data.settings.autoPublish = this.data.settings.autoPublish === true && this.data.settings.autoCheck &&
+      this.data.settings.allowPublish === true;
     this.saving = Promise.resolve();
     this.renameEvents = [];
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
@@ -2510,10 +2778,22 @@ class ConfluenceFolderSync extends Plugin {
       { id: "import", name: "Import new Confluence pages", callback: () => this.run("import") },
     ];
     this.registerCommands();
+    this.automatic = new AutomaticSync(this);
+    for (const event of ["create", "modify", "delete"]) {
+      this.registerEvent(this.app.vault.on(event, file => this.automatic.changed(file)));
+    }
+    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.automatic.changed(file, oldPath)));
+    this.register(() => this.automatic.dispose());
+    this.app.workspace.onLayoutReady(() => this.automatic.configure());
   }
 
   get language() {
     return syncLanguage(this.data.settings.language, typeof getLanguage === "function" ? getLanguage() : "en");
+  }
+
+  onunload() {
+    this.unloaded = true;
+    this.automatic?.dispose();
   }
 
   t(message, values) {
@@ -2544,7 +2824,17 @@ class ConfluenceFolderSync extends Plugin {
         const event = this.renameEvents[0];
         const previous = structuredClone(this.data.profiles);
         try {
-          for (const profile of Object.values(this.data.profiles)) rekeySource(profile, event.oldPath, event.newPath);
+          for (const profile of Object.values(this.data.profiles)) {
+            try {
+              rekeySource(profile, event.oldPath, event.newPath);
+            } catch (error) {
+              if (error.code !== "RENAME_COLLISION") throw error;
+              profile.renameConflicts ??= [];
+              profile.renameConflicts = profile.renameConflicts.filter(item => item.to !== event.oldPath);
+              profile.renameConflicts.push({ from: error.from, to: event.newPath });
+              new Notice(localizedError(error, this.language), 12000);
+            }
+          }
           await this.persist();
           this.renameEvents.shift();
         } catch (error) {
@@ -2558,9 +2848,14 @@ class ConfluenceFolderSync extends Plugin {
 
   async configure(key, value) {
     this.data.settings[key] = value;
+    if (["folderUrl", "source", "email", "secretId"].includes(key) ||
+        (key === "allowPublish" && !value) || (key === "autoCheck" && !value)) {
+      this.data.settings.autoPublish = false;
+    }
     try {
       await this.persist();
       if (key === "language") this.registerCommands();
+      this.automatic?.configure();
     } catch {
       new Notice(this.t("Confluence Folder Sync could not save the settings."));
     }
@@ -2571,6 +2866,7 @@ class ConfluenceFolderSync extends Plugin {
   }
 
   async exclusive(task) {
+    if (this.unloaded) throw new Error("The plugin is disabled. Reopen it before continuing.");
     if (this.running) throw new Error("A Confluence command is already running in this vault.");
     await this.applyRenames();
     if (this.running) throw new Error("A Confluence command is already running in this vault.");
@@ -2613,7 +2909,7 @@ class ConfluenceFolderSync extends Plugin {
       throw error;
     } finally {
       item.finished = new Date().toISOString();
-      await this.persist();
+      if (!this.unloaded) await this.persist();
     }
   }
 

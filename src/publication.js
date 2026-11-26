@@ -2,6 +2,20 @@ function publicationTarget(config) {
   return JSON.stringify([config.origin, config.folderId, config.source]);
 }
 
+function attachmentsConflict(entry, note, files) {
+  if (!entry.remoteAttachments) return false;
+  const desired = new Map(Array.from(note.assets.values(), asset => [asset.name, asset]));
+  const raw = new Map(files.map(file => [file.title, file]));
+  return attachmentDiff(entry.remoteAttachments, attachmentInventory(files)).some(change => {
+    const asset = desired.get(change.title);
+    const file = raw.get(change.title);
+    // A known content-addressed upload may have succeeded before a prior request
+    // was interrupted. Existing/deleted/edited remote versions still conflict.
+    return change.kind !== "Added" || !asset || change.version !== 1 ||
+      file?.comment !== asset.hash || file?.fileSize !== asset.data.byteLength;
+  });
+}
+
 function selectionTree(tree, paths) {
   const selected = new Set(paths);
   const notes = tree.notes.filter(note => selected.has(note.path));
@@ -35,11 +49,20 @@ async function publicationReview(app, client, profile, tree, catalog) {
       renamedFrom: entry?.renamedFrom ?? null,
       dependencies: Array.from(new Set(note.dependencies.filter(path => path !== note.path && !ids.has(path)))) };
     try {
+      if (note.problem) throw note.problem;
+      if (!editorMatches(app, note.path, note.original)) throw new Error("Save the open editor before publication.");
       if (parent?.error) throw parent.error;
       const page = await publisher.inspect("page", profile.pages, "file:" + note.path,
         note.title, parent?.id ?? null, catalog);
       row.version = page?.version.number ?? null;
       row.parent = page ? String(page.parentId) : null;
+      if (page && entry.remoteAttachments) {
+        const files = await client.attachments(page.id);
+        row.inventoryHash = await digest(JSON.stringify(attachmentInventory(files)));
+        if (attachmentsConflict(entry, note, files)) {
+          throw new Error("Confluence attachments changed. Review the conflict before publishing.");
+        }
+      }
       row.outputHash = await digest(resolvedStorage(note, app, client, ids));
       row.status = !page ? "New" : entry.creating || entry.pending ||
         page.title !== note.title || String(page.parentId) !== parent?.id ? "Changed" :
@@ -84,7 +107,8 @@ async function publishSelection(app, client, profile, save, review, paths, contr
   const subset = selectionTree(tree, selected);
   // Re-read after remote preflight. A modal can stay open while local files change.
   for (const note of subset.notes) {
-    if (note.file.path !== note.path || await digest(await app.vault.read(note.file)) !== note.sourceHash) {
+    if (note.file.path !== note.path || await digest(await app.vault.read(note.file)) !== note.sourceHash ||
+        !editorMatches(app, note.path, note.original)) {
       throw new Error("A selected note or page changed. Refresh the publication review.");
     }
   }
@@ -96,7 +120,8 @@ async function publishSelection(app, client, profile, save, review, paths, contr
       await control.check?.(note);
       for (const selectedNote of note ? [note] : subset.notes) {
         if (selectedNote.file.path !== selectedNote.path ||
-            await digest(await app.vault.read(selectedNote.file)) !== selectedNote.sourceHash) {
+            await digest(await app.vault.read(selectedNote.file)) !== selectedNote.sourceHash ||
+            !editorMatches(app, selectedNote.path, selectedNote.original)) {
           throw new Error("A selected note or page changed. Refresh the publication review.");
         }
         for (const [path, asset] of selectedNote.assets) {
@@ -212,7 +237,7 @@ class PublicationModal extends Modal {
       const updated = await this.plugin.operation("Publish selected", ({ client, profile, save }) =>
         publishSelection(this.app, client, profile, save, this.review, paths, {
           check: () => {
-            if (this.cancelled) {
+            if (this.cancelled || this.plugin.unloaded) {
               const error = new Error("The operation was cancelled. Completed changes are preserved.");
               error.name = "AbortError";
               throw error;
