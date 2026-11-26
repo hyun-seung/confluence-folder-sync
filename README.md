@@ -4,7 +4,7 @@ English · [한국어](README.ko.md) · [Development roadmap](ROADMAP.md)
 
 Publish a selected Obsidian vault folder to Confluence Cloud. Preview remote edits and save new Confluence pages as local Markdown copies. Processing runs in desktop Obsidian and connects directly to Atlassian. The plugin requires no external command, Python runtime, paid Obsidian add-on, or relay server.
 
-Source and development history are available on [GitHub](https://github.com/hyun-seung/confluence-folder-sync). Released under the [MIT License](LICENSE). Obsidian Community directory submission is being prepared; the plugin is not yet listed.
+Source and development history are available on [GitHub](https://github.com/hyun-seung/confluence-folder-sync). Released under the [MIT License](LICENSE). Submitted and published to [Obsidian Community](https://community.obsidian.md/plugins/confluence-folder-sync) on 2026-11-26. The listing shows the current automated review and installation status.
 
 ## Install the release
 

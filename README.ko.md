@@ -4,7 +4,7 @@
 
 PC의 Obsidian 보관함과 Confluence Cloud를 연결하는 데스크톱 플러그인입니다. 지정한 로컬 폴더를 Confluence 폴더 아래에 발행하고, Confluence의 변경을 비교하거나 새 페이지와 첨부파일을 Markdown 사본으로 내려받습니다. Obsidian에서 직접 처리하므로 별도 서버, 유료 플러그인, 외부 명령어나 Python 실행 환경이 필요하지 않습니다.
 
-[GitHub](https://github.com/hyun-seung/confluence-folder-sync)에서 소스와 개발 이력을 확인할 수 있으며 [MIT 라이선스](LICENSE)로 배포합니다. 공식 Obsidian 커뮤니티 등록은 준비 중이며 아직 디렉터리에 등재되지 않았습니다.
+[GitHub](https://github.com/hyun-seung/confluence-folder-sync)에서 소스와 개발 이력을 확인할 수 있으며 [MIT 라이선스](LICENSE)로 배포합니다. 2026-11-26 [공식 Obsidian 커뮤니티](https://community.obsidian.md/plugins/confluence-folder-sync)에 등록 요청과 공개 처리를 완료했습니다. 현재 자동 검토 결과와 설치 가능 여부는 해당 페이지에서 확인하세요.
 
 ## 설치
 
