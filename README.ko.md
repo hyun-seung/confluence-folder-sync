@@ -4,12 +4,12 @@
 
 PC의 Obsidian 보관함과 Confluence Cloud를 연결하는 데스크톱 플러그인입니다. 지정한 로컬 폴더를 Confluence 폴더 아래에 발행하고, Confluence의 변경을 비교하거나 새 페이지와 첨부파일을 Markdown 사본으로 내려받습니다. Obsidian에서 직접 처리하므로 별도 서버, 유료 플러그인, 외부 명령어나 Python 실행 환경이 필요하지 않습니다.
 
-현재 사전 공개 버전입니다. [GitHub](https://github.com/hyun-seung/confluence-folder-sync)에서 소스와 개발 이력을 확인할 수 있습니다. 공식 Obsidian 커뮤니티 등록은 준비 중이며, 공개 라이선스는 저장소 소유자가 아직 선택하지 않았습니다.
+[GitHub](https://github.com/hyun-seung/confluence-folder-sync)에서 소스와 개발 이력을 확인할 수 있으며 [MIT 라이선스](LICENSE)로 배포합니다. 공식 Obsidian 커뮤니티 등록은 준비 중이며 아직 디렉터리에 등재되지 않았습니다.
 
 ## 설치
 
-1. [Releases](https://github.com/hyun-seung/confluence-folder-sync/releases)에서 최신 사전 공개 버전을 엽니다.
-2. [confluence-folder-sync-0.6.0.zip](https://github.com/hyun-seung/confluence-folder-sync/releases/download/0.6.0/confluence-folder-sync-0.6.0.zip)을 내려받고 압축을 풉니다. 안에 있는 `confluence-folder-sync` 폴더를 보관함의 `.obsidian/plugins/`에 넣습니다. macOS Finder에서는 `Command + Shift + .`으로 숨김 폴더를 표시할 수 있습니다.
+1. [Releases](https://github.com/hyun-seung/confluence-folder-sync/releases)에서 최신 릴리스을 엽니다.
+2. [confluence-folder-sync-0.6.1.zip](https://github.com/hyun-seung/confluence-folder-sync/releases/download/0.6.1/confluence-folder-sync-0.6.1.zip)을 내려받고 압축을 풉니다. 안에 있는 `confluence-folder-sync` 폴더를 보관함의 `.obsidian/plugins/`에 넣습니다. macOS Finder에서는 `Command + Shift + .`으로 숨김 폴더를 표시할 수 있습니다.
 3. 최종 경로가 `.obsidian/plugins/confluence-folder-sync/main.js`인지 확인합니다. 같은 폴더에 `manifest.json`과 `styles.css`도 있어야 합니다. ZIP 대신 릴리스의 개별 파일 3개를 직접 내려받아 같은 경로에 넣어도 됩니다.
 4. Obsidian의 **설정 → 커뮤니티 플러그인**에서 **Confluence Folder Sync**를 활성화합니다. Obsidian Desktop 1.14 이상이 필요합니다.
 
@@ -146,9 +146,9 @@ GitHub가 자동 생성한 **Source code (zip)**은 개발용 소스 압축파�
 
 `npm run build`로 `main.js`를 생성하고 `npm test`로 빌드와 시험을 실행합니다. Node.js는 개발자에게만 필요합니다.
 
-릴리스 태그는 `manifest.json`의 버전과 같고 `v` 접두사를 붙이지 않습니다. `versions.json`은 Obsidian 최소 버전을 기록합니다. 릴리스에는 `main.js`, `manifest.json`, `styles.css`를 개별 파일로 올리며, 수동 설치용 ZIP과 검증용 `SHA256SUMS.txt`를 함께 제공합니다. ZIP에는 플러그인 폴더와 설치 파일, 두 언어의 안내 문서를 넣습니다.
+릴리스 태그는 `manifest.json`의 버전과 같고 `v` 접두사를 붙이지 않습니다. `versions.json`은 Obsidian 최소 버전을 기록합니다. 릴리스에는 `main.js`, `manifest.json`, `styles.css`를 개별 파일로 올리며, 수동 설치용 ZIP과 검증용 `SHA256SUMS.txt`를 함께 제공합니다. ZIP에는 플러그인 폴더와 설치 파일, 두 언어의 안내 문서와 `LICENSE`를 넣습니다.
 
-공식 제출에는 사용 안내, 선택한 `LICENSE`, manifest와 일치하는 GitHub 릴리스가 필요하며 [Obsidian Community](https://community.obsidian.md/)에서 진행합니다. Windows·Linux 네이티브 검증은 이 프로젝트의 배포 준비 목표로 별도 관리합니다. 현재 완료한 네이티브 검증은 macOS입니다. 공개 플러그인 ID의 사용 가능 여부도 제출 전에 확인합니다. [공식 등록 안내](https://docs.obsidian.md/Plugins/Releasing/Submit%20your%20plugin)를 참고하세요. 변경 이력과 검증 범위는 [CHANGELOG.md](CHANGELOG.md)에 기록합니다.
+공식 제출에는 사용 안내, `LICENSE`, manifest와 일치하는 GitHub 릴리스가 필요하며 [Obsidian Community](https://community.obsidian.md/)에서 진행합니다. Windows·Linux 네이티브 검증은 이 프로젝트의 배포 준비 목표로 별도 관리합니다. 현재 완료한 네이티브 검증은 macOS입니다. 공개 플러그인 ID의 사용 가능 여부도 제출 전에 확인합니다. [공식 등록 안내](https://docs.obsidian.md/plugins/releasing/submit-plugin)를 참고하세요. 변경 이력과 검증 범위는 [CHANGELOG.md](CHANGELOG.md)에 기록합니다.
 
 공개 자료에는 합성 예시를 사용합니다. 개인 설정, 보관함 문서, 토큰, 동기화 상태와 사내 경로는 로컬에 유지하세요.
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1
+
+- Add the owner-approved MIT license to the source repository and installation ZIP.
+- Update bilingual installation and Community submission documentation to the current account-based submission process.
+- Keep runtime behavior unchanged from 0.6.0; retain the 52 regression fixtures and existing platform-verification limits.
+
 ## 0.6.0
 
 - Add bilingual Connections and recovery UI with scoped status filtering and explicit preview/confirmation.

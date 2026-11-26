@@ -2,7 +2,7 @@
 
 English · [한국어](ROADMAP.ko.md) · [Usage guide](README.md)
 
-Current release: **0.6.0 preview**. This document proposes the next work; the items below are not implemented or scheduled. Version 0.6.0 adds verified reconnection, source-root migration and completed-operation recovery to selective publication, text conflict resolution, tracked local moves, operation history and guarded backup restoration, and optional automatic checks/publication. See [CHANGELOG.md](CHANGELOG.md) for delivered work.
+Current release: **0.6.1** (MIT licensing and submission preparation; runtime behavior from 0.6.0). This document proposes the next work; the items below are not implemented or scheduled. Version 0.6.0 adds verified reconnection, source-root migration and completed-operation recovery to selective publication, text conflict resolution, tracked local moves, operation history and guarded backup restoration, and optional automatic checks/publication. See [CHANGELOG.md](CHANGELOG.md) for delivered work.
 
 ## Recommended order
 
@@ -19,12 +19,12 @@ Mapping and recovery management shipped in 0.6.0 with conservative recovery chec
 
 ## Community directory preparation
 
-The [official submission guide](https://docs.obsidian.md/Plugins/Releasing/Submit%20your%20plugin) is the source for directory requirements. This repository currently has public source, bilingual usage guides, a manifest and a matching 0.6.0 GitHub release. Still to do:
+The [official submission guide](https://docs.obsidian.md/plugins/releasing/submit-plugin) is the source for directory requirements. This repository currently has public source, bilingual usage guides, a manifest and a matching 0.6.1 GitHub release. Still to do:
 
-- The repository owner chooses and adds `LICENSE`. This roadmap does not select one.
+- MIT licensing is complete: the repository and installation ZIP include `LICENSE`.
 - Check the public plugin ID and current developer/submission requirements.
 - Complete the project's platform verification and public test/packaging work above.
-- Submit through Obsidian Community using the owner's linked account and address review feedback. No directory submission has been made.
+- Submit through Obsidian Community using the owner's linked account and address automated review feedback. Submission preparation is in progress; this document does not imply listing approval.
 
 Cross-platform checks are this project's readiness goal; directory acceptance depends on the official requirements and review.
 
