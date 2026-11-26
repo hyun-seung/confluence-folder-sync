@@ -1,0 +1,13 @@
+{
+  "name": "confluence-folder-sync-tests",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "test": "node ui.cjs",
+    "test:native": "node native.cjs"
+  },
+  "devDependencies": {
+    "puppeteer-core": "25.19.0"
+  }
+}

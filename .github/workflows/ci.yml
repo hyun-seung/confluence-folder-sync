@@ -43,3 +43,44 @@ jobs:
           set -euo pipefail
           version="$(node -p 'require("./manifest.json").version')"
           python3 tools/release.py --tag "$version" --output .release/assets
+  browser-ui:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26'
+      - run: npm ci --ignore-scripts --prefix testing --no-audit --no-fund
+      - run: npm run build
+      - run: npm test --prefix testing
+  native-desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26'
+      - run: npm ci --ignore-scripts --prefix testing --no-audit --no-fund
+      - run: npm run build
+      - name: Download and verify official desktop binary
+        run: python testing/prepare-native.py
+      - name: Native Linux synthetic vault
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum npm run test:native --prefix testing
+      - name: Native Windows synthetic vault
+        if: runner.os == 'Windows'
+        run: npm run test:native --prefix testing

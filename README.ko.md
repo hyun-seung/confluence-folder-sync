@@ -146,6 +146,8 @@ GitHub가 자동 생성한 **Source code (zip)**은 개발용 소스 압축파�
 
 `npm ci --ignore-scripts --offline --no-audit --no-fund`로 의존성이 없는 lockfile을 확인한 뒤 `npm run build`로 `main.js`를 생성하고 `npm test`로 빌드와 시험을 실행합니다. Node.js는 개발자에게만 필요합니다.
 
+공개 영문·한글 Chromium 시험과 임시 Obsidian 보관함의 실제 앱 시험은 [UI·네이티브 시험 안내](testing/README.md)에 정리했습니다. 개발 시험용 의존성과 lockfile은 `testing/`에 분리하며 플러그인 배포 파일에 포함하지 않습니다.
+
 릴리스 태그는 `manifest.json`의 버전과 같고 `v` 접두사를 붙이지 않습니다. `versions.json`은 Obsidian 최소 버전을 기록합니다. 릴리스에는 `main.js`, `manifest.json`, `styles.css`를 개별 파일로 올리며, 수동 설치용 ZIP과 검증용 `SHA256SUMS.txt`를 함께 제공합니다. ZIP에는 플러그인 폴더와 설치 파일, 두 언어의 안내 문서와 `LICENSE`를 넣습니다.
 
 공식 제출에는 사용 안내, `LICENSE`, manifest와 일치하는 GitHub 릴리스가 필요하며 [Obsidian Community](https://community.obsidian.md/)에서 진행합니다. Windows·Linux 네이티브 검증은 이 프로젝트의 배포 준비 목표로 별도 관리합니다. 현재 완료한 네이티브 검증은 macOS입니다. 공개 플러그인 ID의 사용 가능 여부도 제출 전에 확인합니다. [공식 등록 안내](https://docs.obsidian.md/plugins/releasing/submit-plugin)를 참고하세요. 변경 이력과 검증 범위는 [CHANGELOG.md](CHANGELOG.md)에 기록합니다.
