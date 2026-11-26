@@ -8,16 +8,16 @@ This is a pre-release. Source and development history are available on [GitHub](
 
 ## Install the release candidate
 
-1. Open [Releases](https://github.com/hyun-seung/confluence-folder-sync/releases) and choose the newest preview. Download `confluence-folder-sync-0.4.0.zip`, then extract its `confluence-folder-sync` folder into your vault's `.obsidian/plugins/` folder. Alternatively, download the three individual assets `main.js`, `manifest.json`, and `styles.css` from the same release into `.obsidian/plugins/confluence-folder-sync/`. Enable **Confluence Folder Sync** in Obsidian's Community plugins settings. GitHub's automatically generated **Source code (zip)** is for development and has a different directory structure.
+1. Open [Releases](https://github.com/hyun-seung/confluence-folder-sync/releases) and choose the newest preview. Download `confluence-folder-sync-0.5.0.zip`, then extract its `confluence-folder-sync` folder into your vault's `.obsidian/plugins/` folder. Alternatively, download the three individual assets `main.js`, `manifest.json`, and `styles.css` from the same release into `.obsidian/plugins/confluence-folder-sync/`. Enable **Confluence Folder Sync** in Obsidian's Community plugins settings. GitHub's automatically generated **Source code (zip)** is for development and has a different directory structure.
 2. In the plugin settings, enter your Confluence Cloud **folder URL** and the Atlassian email associated with a scoped API token. Select the token using Obsidian's secret picker. Use Obsidian Desktop 1.14 or later.
 3. Set separate vault-relative source and import folders, then use **Test connection**.
-4. Open the **Confluence sync dashboard** from the arrow icon in the left ribbon or from the command palette. To publish, enable **Enable publish** and verify the displayed destination when confirming.
+4. Open the **Confluence sync dashboard** from the arrow icon in the left ribbon or from the command palette. Use **Review publication** to inspect all source notes. Enable **Enable publish**, select eligible notes, and verify the destination before uploading.
 
 Use a new Confluence test folder on first setup. This plugin maintains its own ID map. Existing pages are reported as conflicts when titles match an unrelated page. The Mac tool's existing mappings need a separate migration before this plugin can manage those pages.
 
 ## Language
 
-The interface follows the Obsidian application language by default. In this plugin's settings, choose **Language → Follow Obsidian / English / 한국어**. Settings, dashboard controls, confirmations, notifications, plugin error messages, and generated report text support both languages. The command palette and ribbon label update when you change this setting. Other Obsidian languages use English. Original note content, Confluence titles, technical diagnostics from the host, and stable import directory names are preserved. The same release and ZIP support both languages.
+The interface follows the Obsidian application language by default. In this plugin's settings, choose **Language → Follow Obsidian / English / 한국어**. Settings, dashboard controls, confirmations, notifications, plugin error messages, and generated report text support both languages. The command palette and ribbon label update when you change this setting. Other Obsidian languages use English. Original note content, Confluence titles, technical diagnostics from the host, and stable import directory names retain their own language. The same release and ZIP support both languages.
 
 ## Upgrade an existing installation
 
@@ -35,11 +35,33 @@ Migrating from an external publisher requires verifying each page's ID, parent, 
 | **Load pages → Load versions → Compare** | Pick a page and two available Confluence versions. Added and removed Markdown lines appear in the dashboard. |
 | **Review local application** | Compare the linked page's last published version with its current Confluence version. Choose individual text changes with a unique matching location, then confirm local application. |
 | **Download latest copy** | Save the selected page's current version under `Snapshots`, including when a copy already exists. |
-| **Publish folder** | Review the source and destination, then publish eligible changes with conflict protection. |
+| **Review publication** | List new, changed, unchanged and conflicting notes. Select eligible notes and confirm **Publish selected**. Unselected pages and folders are preserved. |
+| **Resolve text conflict** | Compare the previous baseline, local note and Confluence text. Keep local text, use remote text or edit a resolution, then back up and save locally. Review and publish the resolution separately. |
+| **Open history** | View recent operations and recorded backups. Open a backup or restore it after checking that the note has not changed since that operation. |
 
 Snapshots preserve local originals and previous copies and leave tracked versions unchanged. Downloads save files in an `Attachments` folder with versioned filenames. Previously tracked pages from older plugin versions first record the current attachment inventory when previewed.
 
 Local application saves a backup of the note under `Backups`, checks the remote version again, and applies the selected lines only when the local file and open editor still match the review. Changes with missing or ambiguous context stay disabled. Selective application is available for linked published notes and leaves the last published version in place. If Confluence was edited directly, subsequent publication continues to surface that conflict, so unselected remote edits remain protected.
+
+## Selective publication and tracked moves
+
+The publication review is read-only and remains available when publishing is disabled. Select notes individually or use **Select eligible notes**. A new linked note must also be selected when another selected note references it. Existing mapped targets remain valid links without being selected. The plugin rechecks the destination, disk contents, open editor text, attachment bytes and remote revisions before writes. Refresh the review if these inputs change. Cancellation stops before the next write request; completed changes and resumable state remain recorded.
+
+While the plugin is enabled, note and folder renames within the configured source preserve page IDs. The next selected publication updates page titles and parents. New destination folders are created as needed; old folders are retained and owned folders can be reused when moving back. Moves outside the configured source are excluded. Rename collisions appear as conflicts; undo the move or move to a free path. Renaming the configured source root or moving files while the plugin is disabled requires checking the source setting and transferring the mappings separately.
+
+Conflict resolution accepts the displayed current remote version as the new comparison baseline after explicit confirmation. It never uploads immediately. Keeping local text or editing a merged resolution can replace the accepted remote text in the next manual publication. Selecting the converted remote text preserves the current Confluence body until another local edit. Attachments stay on Confluence. Resolving a conflict requires a manual publication before unattended uploads resume for that note.
+
+## History and local restoration
+
+The plugin retains the latest 100 operation records and 100 backup receipts in local plugin data; the history screen shows the latest 30 of each. Backup contents remain as Markdown under the import folder's `Backups` directory and are never automatically removed. Backups made before this version remain on disk, but have no receipt in the new history screen.
+
+Restoration checks the source/destination, backup hash, current note and open editor, then backs up the current revision before restoring. If either the note or backup was edited, open the backup and merge it manually. Restoring a note does not roll back Confluence versions or change the accepted remote baseline.
+
+## Optional automatic operation
+
+**Automatic checks** is off by default. When enabled, changes under the source folder trigger a debounced check; periodic checks run every 5, 15 or 60 minutes while Obsidian is open. Checks compare page and tracked attachment versions and show notifications/history without creating report files, importing pages or deleting anything. Repeated source changes are throttled to at least one minute between checks.
+
+**Automatic publication** is a separate setting. It requires **Enable publish**, **Automatic checks** and an explicit destination confirmation. It uploads local edits only to established linked pages with a known baseline. New pages, moves, pending publishes, unresolved conflicts and conflict resolutions awaiting manual publication stay in the review workflow. Disabling publishing/checks or changing the account, secret, source or folder URL disables unattended uploads. The local installation starts with automatic options off.
 
 ## Atlassian account and scopes
 
@@ -53,15 +75,15 @@ The token is retrieved from Obsidian SecretStorage. The plugin stores your setti
 ## Network and vault access
 
 - The selected `*.atlassian.net` site supplies the tenant's Cloud ID. The plugin sends authenticated REST requests to `api.atlassian.com` for the selected tenant.
-- Preview and import read page and attachment metadata and page contents. Downloads use the desktop HTTPS client to request a specific attachment version from `api.atlassian.com`. The binary is then fetched from `api.media.atlassian.com` using the signed redirect, without forwarding the account token. Publish sends source note content, page and folder names, and referenced in-scope attachments only after local preflight and confirmation.
+- Preview and import read page and attachment metadata and page contents. Downloads use the desktop HTTPS client to request a specific attachment version from `api.atlassian.com`. The binary is then fetched from `api.media.atlassian.com` using the signed redirect, without forwarding the account token. Manual publication sends selected source note content, page/folder names and referenced in-scope attachments after preflight and confirmation. Optional unattended publication sends eligible linked-note changes only after its separate setting is explicitly enabled.
 - References to online images are emitted as links so the plugin does not fetch them. The plugin has no analytics and accesses the vault through Obsidian APIs.
-- Existing notes are modified only when the user explicitly confirms applying selected changes. Neither side's files or pages are automatically deleted. For any single Confluence folder, keep one designated publishing installation and let other installations preview or import.
+- Existing notes are modified only after confirmation of selected changes, conflict resolution or backup restoration. Neither side's files or pages are automatically deleted. For any single Confluence folder, keep one designated publishing installation and let other installations preview or import.
 
 ## Coverage
 
 - Publish supports headings, basic emphasis, lists, Markdown tables, fenced code, links within the configured source, and referenced in-scope attachments up to 25 MiB each. Mermaid is published as fenced source in a Confluence code macro. Rich Markdown extensions and all Confluence editor features have limited conversion.
 - Import saves new page bodies and attachments under the separate import folder. Attachments up to 25 MiB each are downloaded, with size verification. Earlier page-body comparisons and selective application cover the converted text, while attachment changes appear separately in the report.
-- The runtime uses Obsidian desktop APIs, web APIs, and the desktop HTTPS client for binary downloads. macOS local installation, account connection, page listing, version comparison, change preview, English/Korean language and command switching, and synthetic page and attachment import have been verified in Obsidian 1.14.5. Windows and Linux installation checks remain pending.
+- The runtime uses Obsidian desktop APIs, web APIs, and the desktop HTTPS client for binary downloads. The 0.5.0 macOS installation, account connection, read-only publication review, localized dashboard and activity persistence have been verified in Obsidian 1.14.5. Selected writes, conflict resolution and restoration are covered by synthetic fixtures in both languages; earlier native synthetic attachment imports were also verified. Windows and Linux installation checks remain pending.
 
 ## Build and review
 

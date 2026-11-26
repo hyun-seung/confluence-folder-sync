@@ -22,6 +22,11 @@
   gap: var(--size-4-2);
 }
 
+.modal:has(.cfs-conflict) {
+  width: min(1100px, 92vw);
+  max-width: 92vw;
+}
+
 .cfs-conflict-columns pre {
   max-height: 24vh;
   overflow: auto;
