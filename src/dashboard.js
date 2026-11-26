@@ -43,6 +43,9 @@ class SyncDashboard extends Modal {
     new Setting(contentEl).setName(t("Activity and backups"))
       .addButton(button("Open history", () => { this.close(); new HistoryModal(this.plugin).open(); }));
 
+    new Setting(contentEl).setName(t("Connections and recovery"))
+      .addButton(button("Manage connections", () => { this.close(); new MappingModal(this.plugin).open(); }));
+
     if (!this.pages.length) return;
     const selectPage = new Setting(contentEl).setName(t("Confluence page"));
     selectPage.addDropdown(dropdown => {

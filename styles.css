@@ -68,3 +68,8 @@
 .cfs-dashboard .cfs-removed {
   color: var(--text-error);
 }
+
+.cfs-management .setting-item-control { flex-wrap: wrap; }
+.cfs-management .setting-item-name, .cfs-management li, .cfs-management p { overflow-wrap: anywhere; }
+.cfs-management select { max-width: min(420px, 65vw); }
+.cfs-management-rows { max-height: 26vh; overflow-y: auto; }

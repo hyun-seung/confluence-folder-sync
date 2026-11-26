@@ -101,7 +101,8 @@ class ConfluenceFolderSync extends Plugin {
   async onload() {
     const stored = await this.loadData() ?? {};
     this.data = { settings: { ...DEFAULT_SETTINGS, ...stored.settings }, profiles: stored.profiles ?? {},
-      history: Array.isArray(stored.history) ? stored.history : [], backups: Array.isArray(stored.backups) ? stored.backups : [] };
+      history: Array.isArray(stored.history) ? stored.history : [], backups: Array.isArray(stored.backups) ? stored.backups : [],
+      mappingBackups: Array.isArray(stored.mappingBackups) ? stored.mappingBackups : [] };
     this.data.settings.autoCheck = this.data.settings.autoCheck === true;
     this.data.settings.autoPublish = this.data.settings.autoPublish === true && this.data.settings.autoCheck &&
       this.data.settings.allowPublish === true;
@@ -117,6 +118,7 @@ class ConfluenceFolderSync extends Plugin {
     this.ribbon = this.addRibbonIcon("arrow-right-left", this.t("Open Confluence sync dashboard"), openDashboard);
     this.commandDefinitions = [
       { id: "dashboard", name: "Open sync dashboard", callback: openDashboard },
+      { id: "connections", name: "Connections and recovery", callback: () => new MappingModal(this).open() },
       { id: "history", name: "Activity and backups", callback: () => new HistoryModal(this).open() },
       { id: "publish", name: "Publish vault folder to Confluence", callback: () => this.run("publish") },
       { id: "preview", name: "Preview Confluence changes", callback: () => this.run("preview") },
@@ -169,7 +171,11 @@ class ConfluenceFolderSync extends Plugin {
         const event = this.renameEvents[0];
         const previous = structuredClone(this.data.profiles);
         try {
-          for (const profile of Object.values(this.data.profiles)) {
+          for (const [key, profile] of Object.entries(this.data.profiles)) {
+            // A configured-root rename is transferred explicitly in management,
+            // preserving the old baseline and folder ownership until confirmation.
+            const sourceRoot = mappingProfileKey(key)?.[2];
+            if (sourceRoot && pathIn(sourceRoot, event.oldPath)) continue;
             try {
               rekeySource(profile, event.oldPath, event.newPath);
             } catch (error) {
@@ -225,7 +231,7 @@ class ConfluenceFolderSync extends Plugin {
     }
   }
 
-  withConnection(task) {
+  withConnection(task, options = {}) {
     return this.exclusive(async () => {
       const config = validatedConfig({ ...this.data.settings, language: this.language });
       const token = this.app.secretStorage.getSecret(config.secretId);
@@ -234,6 +240,7 @@ class ConfluenceFolderSync extends Plugin {
       const folder = await client.connect();
       const key = publicationTarget(config);
       const profile = this.data.profiles[key] ??= { folders: {}, pages: {}, imports: {} };
+      if (profile.movedTo && !options.management) throw new Error("This source profile was migrated. Use its destination source or migrate it back.");
       return task({ client, folder, config, profile, save: () => this.persist() });
     });
   }
@@ -258,8 +265,8 @@ class ConfluenceFolderSync extends Plugin {
     }
   }
 
-  operation(action, task) {
-    return this.withConnection(context => this.recordOperation(action, () => task(context)));
+  operation(action, task, options) {
+    return this.withConnection(context => this.recordOperation(action, () => task(context)), options);
   }
 
   async recordBackup(receipt) {

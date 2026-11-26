@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.0
+
+- Add bilingual Connections and recovery UI with scoped status filtering and explicit preview/confirmation.
+- Reconnect exact matching existing pages and unchanged offline moves; refuse duplicate ownership and unrelated content.
+- Transfer verified mappings to a new source root without changing page IDs or documents; preserve a previous-profile migration marker.
+- Recover provable placeholder creates and completed lost-response updates. Unproved creates, folder creates and pending updates keep their recovery markers.
+- Recheck disk/editor inputs, remote body/version/location/attachments and profile state before saving; retain ten private metadata snapshots and roll back profiles on save failure.
+- Disable automatic publication after management changes and require manual review of affected notes.
+- Verify 52 Node fixtures and management actions/cancellation in both language Chromium workflows. Independent review reproduced and verified asset-baseline, overlapping-root ownership and migration-entry fixes.
+- Verify the macOS Obsidian 1.14.5 management screen with 85 existing links; preserve all original files, profiles, settings and authentication. Native Windows/Linux checks remain pending.
+
 ## 0.5.0
 
 - Review new, changed, unchanged and conflicting notes, then publish an explicit selection with unpublished-link dependency checks.

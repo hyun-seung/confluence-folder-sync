@@ -7,7 +7,7 @@ const fromBundle = new Function("require", "module",
   "ConfluenceCloud, Publisher, preparedNotes, pageTrails, digest, lineChange, fromStorage, " +
   "attachmentInventory, attachmentDiff, reviewHunks, matchHunk, mergeSelected, applyLocalReview, " +
   "KOREAN, syncLanguage, translate, localizedError, SyncError, ApiError, publicationReview, publishSelection, " +
-  "resolveConflict, publicationTarget, rekeySource, saveNoteBackup, restoreNoteBackup, automaticCandidates, AutomaticSync };");
+  "resolveConflict, publicationTarget, rekeySource, saveNoteBackup, restoreNoteBackup, automaticCandidates, AutomaticSync, mappingInventory, prepareMappingChange, applyMappingChange };");
 const fakeModule = { exports: {} };
 const lib = fromBundle(() => ({ Plugin: class {}, PluginSettingTab: class {}, Modal: class {}, Notice: class {} }), fakeModule);
 const fixtureConfig = {
@@ -754,4 +754,286 @@ test("reverting local text to its published baseline clears an interrupted updat
   assert.equal(entry.remoteAttachments.length, 1);
   assert.equal(remote.stats.updates, updates);
   assert.equal((await review()).rows.find(row => row.path === "Docs/One.md").status, "Unchanged");
+});
+
+function managementFixture() {
+  const fixture = selectionFixture();
+  const target = lib.publicationTarget(fixture.config);
+  const data = { settings: { ...fixture.config, autoPublish: true }, profiles: { [target]: fixture.profile } };
+  const prepare = request => lib.prepareMappingChange(fixture.app, fixture.remote, data, request);
+  const apply = (plan, save = async () => {}) => lib.applyMappingChange(fixture.app, fixture.remote, data, save, plan);
+  return { ...fixture, data, target, prepare, apply };
+}
+
+test("management lists scope states without changing documents or mapping metadata", async () => {
+  const f = managementFixture();
+  await f.publish(await f.review(), ["Docs/One.md"]);
+  f.profile.pages["file:Docs/Gone.md"] = { id: "999" };
+  f.profile.pages["file:Elsewhere/Secret.md"] = { id: "999" };
+  const before = JSON.stringify(f.data);
+  const inventory = await lib.mappingInventory(f.app, f.remote, f.profile);
+  assert.equal(inventory.rows.length, 4);
+  assert.equal(inventory.rows.find(row => row.path === "Docs/One.md").status, "Linked");
+  assert.equal(inventory.rows.find(row => row.path === "Docs/Two.md").status, "Unlinked");
+  assert.ok(!inventory.rows.some(row => row.path.startsWith("Elsewhere")));
+  assert.equal(JSON.stringify(f.data), before);
+});
+
+test("explicit reconnection verifies exact body and hierarchy, backs up metadata and makes no remote writes", async () => {
+  const f = managementFixture();
+  const page = await f.remote.create("page", "One", "100", '<h1><ac:structured-macro ac:name="anchor"><ac:parameter ac:name="">one</ac:parameter></ac:structured-macro>One</h1>');
+  const request = { action: "reconnect", path: "Docs/One.md", id: page.id };
+  const stats = { ...f.remote.stats };
+  const bodies = [...f.bodies];
+  const plan = await f.prepare(request);
+  assert.deepEqual(f.profile.pages, {});
+  await f.apply(plan);
+  const entry = f.data.profiles[f.target].pages["file:Docs/One.md"];
+  assert.equal(entry.id, page.id);
+  assert.equal(entry.requiresReview, true);
+  assert.equal(f.data.settings.autoPublish, false);
+  assert.equal(f.data.mappingBackups.length, 1);
+  assert.deepEqual(f.data.mappingBackups[0].profiles[f.target].pages, {});
+  assert.deepEqual(f.remote.stats, stats);
+  assert.deepEqual([...f.bodies], bodies);
+});
+
+test("reconnection refuses unrelated bodies, foreign scope, duplicate ownership and stale remote, disk or editor inputs", async () => {
+  const f = managementFixture();
+  const page = await f.remote.create("page", "One", "100", "<p>Other author</p>");
+  const request = { action: "reconnect", path: "Docs/One.md", id: page.id };
+  await assert.rejects(f.prepare(request), /do not match/);
+  const actual = f.remote.records.get(page.id);
+  actual.body.storage.value = '<h1><ac:structured-macro ac:name="anchor"><ac:parameter ac:name="">one</ac:parameter></ac:structured-macro>One</h1>';
+  actual.parentId = "999";
+  await assert.rejects(f.prepare(request), /unavailable/);
+  actual.parentId = "100";
+  const other = JSON.stringify([f.config.origin, f.config.folderId, "Other"]);
+  f.data.profiles[other] = { pages: { "file:Other/One.md": { id: page.id } } };
+  await assert.rejects(f.prepare(request), /already linked/);
+  delete f.data.profiles[other];
+  let plan = await f.prepare(request);
+  actual.version.number++;
+  await assert.rejects(f.apply(plan), /mapping changed/);
+  plan = await f.prepare(request);
+  f.bodies.set("Docs/One.md", "changed");
+  await assert.rejects(f.apply(plan), /do not match/);
+  f.bodies.set("Docs/One.md", "# One");
+  plan = await f.prepare(request);
+  f.app.workspace.getLeavesOfType = () => [{ view: { file: f.files[0], editor: { getValue: () => "unsaved" } } }];
+  await assert.rejects(f.apply(plan), /Save a valid note/);
+  assert.deepEqual(f.profile.pages, {});
+});
+
+test("offline local move reconnects the same ID and preserves the remote baseline for manual relocation", async () => {
+  const f = managementFixture();
+  await f.publish(await f.review(), ["Docs/One.md"]);
+  const entry = structuredClone(f.profile.pages["file:Docs/One.md"]);
+  f.files[0].path = "Docs/Renamed.md";
+  f.files[0].basename = "Renamed";
+  f.bodies.set("Docs/Renamed.md", f.bodies.get("Docs/One.md"));
+  f.bodies.delete("Docs/One.md");
+  const plan = await f.prepare({ action: "reconnect", path: "Docs/Renamed.md", from: "Docs/One.md", id: entry.id });
+  const stats = { ...f.remote.stats };
+  await f.apply(plan);
+  const current = f.data.profiles[f.target];
+  assert.equal(current.pages["file:Docs/One.md"], undefined);
+  assert.equal(current.pages["file:Docs/Renamed.md"].id, entry.id);
+  assert.equal(current.pages["file:Docs/Renamed.md"].renamedFrom, "Docs/One.md");
+  assert.equal(f.remote.records.get(entry.id).title, "One");
+  assert.deepEqual(f.remote.stats, stats);
+});
+
+test("unknown page creation is recovered only by its exact unique placeholder; absent results keep markers", async () => {
+  const f = managementFixture();
+  f.profile.pages["file:Docs/One.md"] = { creating: true, ticket: "durable-fixture" };
+  const request = { action: "recover", path: "Docs/One.md" };
+  await assert.rejects(f.prepare(request), /cannot be proved/);
+  assert.equal(f.profile.pages["file:Docs/One.md"].creating, true);
+  const page = await f.remote.create("page", "One", "100", "<p>Unrelated</p>");
+  await assert.rejects(f.prepare(request), /cannot be proved/);
+  f.remote.records.get(page.id).body.storage.value = "<p>Confluence Folder Sync pending durable-fixture</p>";
+  const plan = await f.prepare(request);
+  const stats = { ...f.remote.stats };
+  await f.apply(plan);
+  const current = f.data.profiles[f.target].pages["file:Docs/One.md"];
+  assert.equal(current.id, page.id);
+  assert.equal(current.creating, undefined);
+  assert.deepEqual(f.remote.stats, stats);
+});
+
+test("completed lost-response updates reconcile only own version, body and verified attachment inventory", async () => {
+  const f = managementFixture();
+  await f.publish(await f.review(), ["Docs/One.md"]);
+  const entry = f.profile.pages["file:Docs/One.md"];
+  const page = f.remote.records.get(entry.id);
+  const body = "<h1>One</h1><p>new</p>";
+  entry.pending = { bodyHash: await lib.digest(body), sourceHash: "prior-input", inputHash: "prior-input-hash",
+    message: "own-request", title: "One", parent: "100" };
+  const request = { action: "recover", path: "Docs/One.md" };
+  await assert.rejects(f.prepare(request), /not confirmed/);
+  page.version = { number: entry.version + 1, message: "Other author" };
+  page.body.storage.value = body;
+  await assert.rejects(f.prepare(request), /independently/);
+  page.version.message = "own-request";
+  const plan = await f.prepare(request);
+  const stats = { ...f.remote.stats };
+  await f.apply(plan);
+  const recovered = f.data.profiles[f.target].pages["file:Docs/One.md"];
+  assert.equal(recovered.pending, undefined);
+  assert.equal(recovered.version, page.version.number);
+  assert.equal(recovered.sourceHash, "prior-input");
+  assert.equal(recovered.requiresReview, true);
+  assert.deepEqual(f.remote.stats, stats);
+});
+
+test("source root migration moves ownership with unchanged IDs and verified content and retains prior metadata", async () => {
+  const f = managementFixture();
+  await f.publish(await f.review(), f.files.map(file => file.path));
+  for (const file of f.files) {
+    const prior = file.path;
+    file.path = prior.replace(/^Docs\//, "Moved/");
+    f.bodies.set(file.path, f.bodies.get(prior));
+    f.bodies.delete(prior);
+  }
+  const oldTarget = f.target;
+  f.config.source = "Moved";
+  const newTarget = lib.publicationTarget(f.config);
+  f.data.settings.source = "Moved";
+  f.data.profiles[newTarget] = { pages: {}, folders: {}, imports: {} };
+  const plan = await f.prepare({ action: "migrate", fromTarget: oldTarget });
+  const stats = { ...f.remote.stats };
+  await f.apply(plan);
+  assert.equal(f.data.profiles[oldTarget].movedTo, newTarget);
+  assert.deepEqual(f.data.profiles[oldTarget].pages, {});
+  assert.equal(Object.keys(f.data.profiles[newTarget].pages).length, 3);
+  assert.equal(f.data.profiles[newTarget].pages["file:Moved/One.md"].id, f.profile.pages["file:Docs/One.md"].id);
+  assert.ok(f.data.profiles[newTarget].folders["dir:Moved/Nested"].id);
+  assert.equal(Object.keys(f.data.mappingBackups[0].profiles[oldTarget].pages).length, 3);
+  assert.deepEqual(f.remote.stats, stats);
+});
+
+test("mapping save failure rolls back metadata while automatic publication remains disabled", async () => {
+  const f = managementFixture();
+  const page = await f.remote.create("page", "One", "100", '<h1><ac:structured-macro ac:name="anchor"><ac:parameter ac:name="">one</ac:parameter></ac:structured-macro>One</h1>');
+  const plan = await f.prepare({ action: "reconnect", path: "Docs/One.md", id: page.id });
+  await assert.rejects(f.apply(plan, async () => { throw new Error("disk full"); }), /disk full/);
+  assert.deepEqual(f.data.profiles[f.target].pages, {});
+  assert.deepEqual(f.data.mappingBackups, []);
+  assert.equal(f.data.settings.autoPublish, false);
+});
+
+test("management rechecks local files after slow remote reads and rejects changes since the preview", async () => {
+  const f = managementFixture();
+  const page = await f.remote.create("page", "One", "100", '<h1><ac:structured-macro ac:name="anchor"><ac:parameter ac:name="">one</ac:parameter></ac:structured-macro>One</h1>');
+  const request = { action: "reconnect", path: "Docs/One.md", id: page.id };
+  const plan = await f.prepare(request);
+  const attachments = f.remote.attachments;
+  f.remote.attachments = async id => { f.bodies.set("Docs/One.md", "late edit"); return attachments(id); };
+  await assert.rejects(f.apply(plan), /local note changed/);
+  assert.deepEqual(f.profile.pages, {});
+});
+
+test("overlapping Confluence roots cannot acquire duplicate page ownership", async () => {
+  const f = managementFixture();
+  const page = await f.remote.create("page", "One", "100", '<h1><ac:structured-macro ac:name="anchor"><ac:parameter ac:name="">one</ac:parameter></ac:structured-macro>One</h1>');
+  const ancestorTarget = JSON.stringify([f.config.origin, "99", "Another"]);
+  f.data.profiles[ancestorTarget] = { pages: { "file:Another/One.md": { id: page.id } } };
+  await assert.rejects(f.prepare({ action: "reconnect", path: "Docs/One.md", id: page.id }), /already linked/);
+});
+
+test("source migration rejects changed referenced bytes even with unchanged Markdown and a migrated formatter", async () => {
+  const f = await imagePublicationFixture();
+  await f.publish(await f.review(), ["Docs/One.md"]);
+  const oldTarget = lib.publicationTarget(f.config);
+  const entry = f.profile.pages["file:Docs/One.md"];
+  entry.migratedInputHash = entry.inputHash;
+  const nextConfig = { ...f.config, source: "Moved" };
+  const newTarget = lib.publicationTarget(nextConfig);
+  const oldRead = f.app.vault.read;
+  const oldBinary = f.app.vault.readBinary;
+  f.app.vault.getMarkdownFiles = () => [{ path: "Moved/One.md", extension: "md", basename: "One" }];
+  f.app.vault.read = async file => oldRead({ ...file, path: file.path.replace(/^Moved\//, "Docs/") });
+  f.app.vault.readBinary = async () => new Uint8Array([8, 8]).buffer;
+  const oldLink = f.app.metadataCache.getFirstLinkpathDest;
+  f.app.metadataCache.getFirstLinkpathDest = (...args) => {
+    const asset = oldLink(...args);
+    return asset ? { ...asset, path: asset.path.replace(/^Docs\//, "Moved/") } : null;
+  };
+  const data = { settings: nextConfig, profiles: { [oldTarget]: f.profile, [newTarget]: { pages: {}, folders: {}, imports: {} } } };
+  f.remote.config = nextConfig;
+  await assert.rejects(lib.prepareMappingChange(f.app, f.remote, data, { action: "migrate", fromTarget: oldTarget }), /baseline differs/);
+  f.app.vault.readBinary = oldBinary;
+});
+
+test("migration can move verified ownership back to a former source profile", async () => {
+  const f = managementFixture();
+  await f.publish(await f.review(), ["Docs/One.md"]);
+  const oldTarget = f.target;
+  const one = f.files[0];
+  one.path = "Moved/One.md";
+  f.bodies.set(one.path, "# One");
+  f.config.source = "Moved";
+  const newTarget = lib.publicationTarget(f.config);
+  f.data.profiles[newTarget] = { pages: {}, folders: {}, imports: {} };
+  await f.apply(await f.prepare({ action: "migrate", fromTarget: oldTarget }));
+  one.path = "Docs/One.md";
+  f.config.source = "Docs";
+  await f.apply(await f.prepare({ action: "migrate", fromTarget: newTarget }));
+  assert.equal(f.data.profiles[oldTarget].movedTo, undefined);
+  assert.ok(f.data.profiles[oldTarget].pages["file:Docs/One.md"].id);
+  assert.equal(f.data.profiles[newTarget].movedTo, oldTarget);
+});
+
+test("observed source-root rename retains the previous profile baseline for explicit migration", async () => {
+  const f = managementFixture();
+  await f.publish(await f.review(), ["Docs/One.md"]);
+  const original = JSON.stringify(f.profile);
+  const plugin = new fakeModule.exports();
+  plugin.data = f.data;
+  plugin.renameEvents = [{ oldPath: "Docs", newPath: "Moved" }];
+  plugin.persist = async () => {};
+  await plugin.applyRenames();
+  assert.equal(JSON.stringify(f.profile), original);
+  assert.equal(plugin.renameEvents.length, 0);
+});
+
+
+test("moving an ancestor of the source root also retains the explicit migration baseline", async () => {
+  const plugin = new fakeModule.exports();
+  const target = JSON.stringify(["https://example.atlassian.net", "100", "Projects/Docs"]);
+  const profile = { pages: { "file:Projects/Docs/One.md": { id: "401", version: 2 } }, folders: {} };
+  plugin.data = { profiles: { [target]: profile } };
+  plugin.renameEvents = [{ oldPath: "Projects", newPath: "Archive" }];
+  plugin.persist = async () => {};
+  await plugin.applyRenames();
+  assert.ok(profile.pages["file:Projects/Docs/One.md"]);
+  assert.equal(profile.pages["file:Archive/Docs/One.md"], undefined);
+});
+
+test("unchanged image mappings migrate in both directions with normalized input baselines", async () => {
+  const f = await imagePublicationFixture();
+  await f.publish(await f.review(), ["Docs/One.md"]);
+  const data = { settings: f.config, profiles: { [lib.publicationTarget(f.config)]: f.profile } };
+  f.app.metadataCache.getFirstLinkpathDest = () => ({ path: f.config.source + "/picture.png", name: "picture.png",
+    extension: "png", stat: { size: 2 } });
+  for (const source of ["Moved", "Docs"]) {
+    const previous = f.config.source;
+    const fromTarget = lib.publicationTarget(f.config);
+    for (const file of f.files) {
+      const path = file.path;
+      file.path = source + path.slice(previous.length);
+      f.bodies.set(file.path, f.bodies.get(path));
+      f.bodies.delete(path);
+    }
+    f.config.source = source;
+    const target = lib.publicationTarget(f.config);
+    data.profiles[target] ??= { pages: {}, folders: {}, imports: {} };
+    const plan = await lib.prepareMappingChange(f.app, f.remote, data, { action: "migrate", fromTarget });
+    await lib.applyMappingChange(f.app, f.remote, data, async () => {}, plan);
+    const entry = data.profiles[target].pages["file:" + source + "/One.md"];
+    const tree = await lib.preparedNotes(f.app, f.config);
+    assert.equal(entry.inputHash, tree.notes.find(note => note.path === source + "/One.md").inputHash);
+    assert.equal(entry.id, f.profile.pages["file:Docs/One.md"].id);
+  }
 });
