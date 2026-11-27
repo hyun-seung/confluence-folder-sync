@@ -51,3 +51,5 @@ Every push/PR runs Node and Chromium fixtures on all three operating systems plu
 The packaging job also passed all 12 Python checks and package validation. Native logs report API version `1.14.5` and success for SecretStorage round trips, selected edits/restoration, binary imports, rename events and plugin reload. At this checkpoint the public runtime was 0.6.3 and the changes affected development infrastructure only. Native macOS was run separately with the installed official desktop executable and a disposable profile.
 
 Version 0.7.0 extends the suite to 78 Node checks, including bounded retry/cancellation and the 1,000-note read-call budget. See the [performance fixture guide](PERFORMANCE.md) for measurements and reproduction.
+
+Version 0.8.0 adds 96 Node checks and browser/native setup workflows in both languages. They cover draft cancellation, read-only checks, actual SecretComponent in Obsidian, privacy-safe report fields, explicit settings save, stale tokens/settings/folders, elapsed checks and rollback when a window closes during save. Native remote responses remain synthetic; no user clipboard is changed by native tests.

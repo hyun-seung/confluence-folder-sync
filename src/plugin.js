@@ -43,6 +43,9 @@ class SyncSettings extends PluginSettingTab {
     containerEl.empty();
     const settings = plugin.data.settings;
     const t = (message, values) => plugin.t(message, values);
+    new Setting(containerEl).setName(t("Connection setup and diagnostics"))
+      .setDesc(t("Check a draft connection step by step without publishing or changing notes."))
+      .addButton(button => button.setButtonText(t("Open setup wizard")).onClick(() => new SetupModal(plugin, () => this.display()).open()));
     new Setting(containerEl).setName(t("Language"))
       .setDesc(t("Follow Obsidian or choose the language for this plugin."))
       .addDropdown(dropdown => dropdown.addOption("auto", t("Follow Obsidian"))
@@ -118,6 +121,7 @@ class ConfluenceFolderSync extends Plugin {
     this.ribbon = this.addRibbonIcon("arrow-right-left", this.t("Open Confluence sync dashboard"), openDashboard);
     this.commandDefinitions = [
       { id: "dashboard", name: "Open sync dashboard", callback: openDashboard },
+      { id: "setup", name: "Connection setup and diagnostics", callback: () => new SetupModal(this).open() },
       { id: "connections", name: "Connections and recovery", callback: () => new MappingModal(this).open() },
       { id: "history", name: "Activity and backups", callback: () => new HistoryModal(this).open() },
       { id: "publish", name: "Publish vault folder to Confluence", callback: () => this.run("publish") },
@@ -198,6 +202,10 @@ class ConfluenceFolderSync extends Plugin {
   }
 
   async configure(key, value) {
+    if (this.setupSaving) {
+      new Notice(this.t("Wait until connection settings finish saving."));
+      return;
+    }
     this.data.settings[key] = value;
     if (["folderUrl", "source", "email", "secretId"].includes(key) ||
         (key === "allowPublish" && !value) || (key === "autoCheck" && !value)) {
@@ -214,6 +222,15 @@ class ConfluenceFolderSync extends Plugin {
 
   confirm(title, summary, button) {
     return new Promise(resolve => new Confirmation(this.app, title, summary, button, this.t("Cancel"), resolve).open());
+  }
+
+  testSetup(draft, check) {
+    return this.exclusive(() => verifySetup(this.app, draft,
+      (config, token, guard) => new ConfluenceCloud(config, token, requestUrl, { check: guard }), check));
+  }
+
+  saveSetup(draft, verified, baseline, check) {
+    return this.exclusive(() => commitSetup(this, draft, verified, baseline, check));
   }
 
   async exclusive(task) {

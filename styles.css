@@ -73,3 +73,8 @@
 .cfs-management .setting-item-name, .cfs-management li, .cfs-management p { overflow-wrap: anywhere; }
 .cfs-management select { max-width: min(420px, 65vw); }
 .cfs-management-rows { max-height: 26vh; overflow-y: auto; }
+
+.cfs-setup .setting-item-control { flex-wrap: wrap; }
+.cfs-setup .setting-item-name, .cfs-setup .setting-item-description, .cfs-setup p { overflow-wrap: anywhere; }
+.cfs-setup input[type=text] { max-width: 100%; }
+.cfs-setup-report { max-height: 26vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }

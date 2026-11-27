@@ -1,4 +1,4 @@
-const { Plugin, PluginSettingTab, Setting, SecretComponent, Notice, Modal, requestUrl, getLanguage } = require("obsidian");
+const { Plugin, PluginSettingTab, Setting, SecretComponent, Notice, Modal, requestUrl, getLanguage, apiVersion } = require("obsidian");
 
 const DESCENDANTS_DEPTH = 10;
 const API = "/wiki/api/v2";
@@ -35,10 +35,10 @@ function vaultPath(input) {
   return parts.join("/");
 }
 
-function validatedConfig(settings) {
+function confluenceTarget(folderUrl) {
   let url;
   try {
-    url = new URL(settings.folderUrl.trim());
+    url = new URL(folderUrl.trim());
   } catch {
     throw new Error("Enter a Confluence Cloud folder URL.");
   }
@@ -48,16 +48,29 @@ function validatedConfig(settings) {
     throw new Error("Enter the HTTPS URL of a Confluence Cloud folder.");
   }
 
-  const source = vaultPath(settings.source);
-  const inbox = vaultPath(settings.inbox);
+  return { origin: url.origin, folderId: match[1] };
+}
+
+function configuredFolders(sourceInput, inboxInput) {
+  const source = vaultPath(sourceInput);
+  const inbox = vaultPath(inboxInput);
   if (pathIn(source.toLowerCase(), inbox.toLowerCase()) || pathIn(inbox.toLowerCase(), source.toLowerCase())) {
     throw new Error("Choose separate source and import folders that do not overlap.");
   }
-  const email = settings.email.trim();
-  if (!/^[^\s:@]+@[^\s:@]+$/.test(email) || !settings.secretId) {
+  return { source, inbox };
+}
+
+function atlassianAccount(emailInput, secretId) {
+  const email = emailInput.trim();
+  if (!/^[^\s:@]+@[^\s:@]+$/.test(email) || typeof secretId !== "string" || !secretId.trim()) {
     throw new Error("Set an Atlassian email and select a token in the plugin settings.");
   }
-  return { ...settings, origin: url.origin, folderId: match[1], source, inbox, email };
+  return { email, secretId };
+}
+
+function validatedConfig(settings) {
+  return { ...settings, ...confluenceTarget(settings.folderUrl), ...configuredFolders(settings.source, settings.inbox),
+    ...atlassianAccount(settings.email, settings.secretId) };
 }
 
 async function digest(value) {

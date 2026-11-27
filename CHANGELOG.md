@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0
+
+- Add a bilingual four-step setup wizard from settings, dashboard and command palette. Draft edits stay separate until explicit save; existing mapping/history data is retained and publication/automatic options are disabled on save.
+- Verify secrets, local folder scope and authenticated folder/descendant read access without reading note bodies, creating folders, writing test pages or claiming publication permissions.
+- Show actionable fixed diagnostics and copy a strict allowlist report without sites, accounts, paths, connection IDs, token values/hashes or content.
+- Recheck draft/settings/secret/folder/verification age at commit boundaries. Cancelled or stale saves restore the previous settings; uncertain disk restoration is reported.
+- Extend synthetic Node checks to 96 and bilingual browser/native Obsidian checks to cover setup, actual SecretComponent, cancellation, saved mappings and diagnostic privacy.
+- 영문·한글 연결 설정 마법사와 읽기 전용 진단을 추가했습니다. 토큰·설정 변경과 저장 중 취소를 확인하고 기존 연결·원본 문서를 보존합니다.
+
 ## 0.7.0
 
 - Batch mapped page metadata in groups of 25 and reuse page/attachment reads within one read-only check. Rebuild the read view for every review and retain direct fresh checks in all publication writes.

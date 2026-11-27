@@ -2,17 +2,16 @@
 
 English · [한국어](ROADMAP.ko.md) · [Usage guide](README.md)
 
-Current release: **0.7.0** (per-review page/attachment read reuse, 25-ID metadata batches, a four-request connection limit and bounded GET retries that respect server delays; fresh write checks and recovery remain in place). This document proposes the next work; the items below are not implemented or scheduled. Version 0.6.0 adds verified reconnection, source-root migration and completed-operation recovery to selective publication, text conflict resolution, tracked local moves, operation history and guarded backup restoration, and optional automatic checks/publication. See [CHANGELOG.md](CHANGELOG.md) for delivered work.
+Current release: **0.8.0** (a bilingual staged connection wizard, read-only checks, explicit guarded settings saves and redacted diagnostics; 0.7.0 read efficiency and fresh write checks remain). This document proposes the next work; the items below are not implemented or scheduled. Version 0.6.0 adds verified reconnection, source-root migration and completed-operation recovery to selective publication, text conflict resolution, tracked local moves, operation history and guarded backup restoration, and optional automatic checks/publication. See [CHANGELOG.md](CHANGELOG.md) for delivered work.
 
 ## Recommended order
 
 | Priority | Work | Current limit | Completion criteria |
 | --- | --- | --- | --- |
-| 1 | Connection setup and diagnostics | Setup uses individual settings fields and reports connection/API errors. | Guide users through folder URL, secret selection, permissions and target confirmation; explain token/account/scope failures; provide diagnostics that omit credentials and document contents. |
-| 2 | Markdown fidelity and local Mermaid rendering | Basic Markdown is supported; rich macros and extensions have limited conversion, and Mermaid is code source. | Offer optional locally rendered diagram images, preserve source for later edits, and add round-trip fixtures for supported callouts, lists, tables, anchors and internal links. Use no external rendering service. |
-| 3 | Multiple configurations and team setup | State is separated by target/source, but settings expose one active configuration. Sharing a publisher's `data.json` exposes private metadata and is not a setup workflow. | Provide named configurations and a validated export/import format without secrets or personal document paths; clearly distinguish publishing and read-only installations and detect conflicting ownership. |
+| 1 | Markdown fidelity and local Mermaid rendering | Basic Markdown is supported; rich macros and extensions have limited conversion, and Mermaid is code source. | Offer optional locally rendered diagram images, preserve source for later edits, and add round-trip fixtures for supported callouts, lists, tables, anchors and internal links. Use no external rendering service. |
+| 2 | Multiple configurations and team setup | State is separated by target/source, but settings expose one active configuration. Sharing a publisher's `data.json` exposes private metadata and is not a setup workflow. | Provide named configurations and a validated export/import format without secrets or personal document paths; clearly distinguish publishing and read-only installations and detect conflicting ownership. |
 
-Public UI fixtures and native synthetic platform checks completed on 2026-11-26: local macOS Obsidian 1.14.5 plus official Windows/Linux desktop builds. All [nine CI jobs](https://github.com/hyun-seung/confluence-folder-sync/actions/runs/45769956255) passed. The [test guide](testing/README.md) records scope and limits. Version 0.7.0 adds large-folder read efficiency and rate-limit handling. A 1,000-note/110-folder automatic check reduces calls from 3,162 to 1,162; see the [benchmark scope and reproduction guide](testing/PERFORMANCE.md). Next is **connection setup and diagnostics UI**. Mapping/recovery management shipped in 0.6.0; CI and tag-based attested packaging shipped in 0.6.2. Richer word-level differences, conflict navigation and an incoming-review queue can follow after these foundations.
+Public UI fixtures and native synthetic platform checks completed on 2026-11-26: local macOS Obsidian 1.14.5 plus official Windows/Linux desktop builds. All [nine CI jobs](https://github.com/hyun-seung/confluence-folder-sync/actions/runs/45769956255) passed. The [test guide](testing/README.md) records scope and limits. Version 0.7.0 adds large-folder read efficiency and rate-limit handling. A 1,000-note/110-folder automatic check reduces calls from 3,162 to 1,162; see the [benchmark scope and reproduction guide](testing/PERFORMANCE.md). Version 0.8.0 adds connection setup and diagnostics UI. Next is **Markdown fidelity and local Mermaid rendering**. Mapping/recovery management shipped in 0.6.0; CI and tag-based attested packaging shipped in 0.6.2. Richer word-level differences, conflict navigation and an incoming-review queue can follow after these foundations.
 
 ## Community directory status
 
@@ -21,7 +20,7 @@ The [official submission guide](https://docs.obsidian.md/plugins/releasing/submi
 - MIT licensing is complete: the repository and installation ZIP include `LICENSE`.
 - The initial submission accepted the ID/name and created the [official listing](https://community.obsidian.md/plugins/confluence-folder-sync) on 2026-11-26.
 - Public UI fixtures, native synthetic platform checks and packaging checks are complete. Live account authentication and installer UI remain outside those checks.
-- Submission and publication are complete. Automated review of 0.6.2 completed, including successful artifact attestations; monitor the official listing for subsequent versions and review findings.
+- Submission and publication are complete. Automated review of 0.7.0, reproducible builds and artifact attestations were reconfirmed on 2026-11-27. Manual staff review is not claimed; monitor the official listing for subsequent versions and review findings.
 
 Cross-platform checks are this project's readiness goal; directory acceptance depends on the official requirements and review.
 

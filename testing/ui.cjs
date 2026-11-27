@@ -52,6 +52,7 @@ const puppeteer = require("puppeteer-core");
         constructor(parent) { this.el = make("div", parent, { cls: "setting-item" }); }
         setName(name) { make("span", this.el, { text: name }); return this; }
         setDesc(description) { make("span", this.el, { text: description }); return this; }
+        addComponent(builder) { builder(this.el); return this; }
         addButton(builder) {
           const el = make("button", this.el);
           const api = {
@@ -97,8 +98,16 @@ const puppeteer = require("puppeteer-core");
           return this;
         }
       }
-      const mockObsidian = { Plugin: class {}, PluginSettingTab: class {}, Modal, Setting, Notice: class {} };
-      const lib = new Function("require", "module", source + "\nreturn { SyncDashboard, incoming, digest, translate, PublicationModal, ConflictModal, HistoryModal, prepareConflict, validatedConfig, ConfluenceCloud, Publisher, preparedNotes, publicationReview, publishSelection, MappingModal, publicationTarget };")(
+      class SecretComponent {
+        constructor(app, parent) {
+          this.selectEl = make("select", parent);
+          for (const id of app.secretStorage.listSecrets()) this.selectEl.add(new Option(id, id));
+        }
+        setValue(value) { this.selectEl.value = value; return this; }
+        onChange(callback) { this.selectEl.addEventListener("change", () => callback(this.selectEl.value)); return this; }
+      }
+      const mockObsidian = { Plugin: class {}, PluginSettingTab: class {}, Modal, Setting, SecretComponent, Notice: class {} };
+      const lib = new Function("require", "module", source + "\nreturn { SetupModal, verifySetup, commitSetup, setupDiagnostics, ApiError, SyncDashboard, incoming, digest, translate, PublicationModal, ConflictModal, HistoryModal, prepareConflict, validatedConfig, ConfluenceCloud, Publisher, preparedNotes, publicationReview, publishSelection, MappingModal, publicationTarget };")(
         name => {
           if (name !== "obsidian") throw new Error("Unexpected runtime dependency: " + name);
           return mockObsidian;
@@ -364,6 +373,90 @@ const puppeteer = require("puppeteer-core");
       }
       management.close();
 
+      const setupFixture = loadFixtures().selectionFixture(lib);
+      const setupApp = setupFixture.app;
+      setupApp.vault.getFolderByPath = path => path === "Docs" ? loadFixtures().fixtureFolder("Docs", setupFixture.files) : null;
+      setupApp.vault.getAbstractFileByPath = path => setupApp.vault.getFolderByPath(path) ?? setupApp.vault.getFileByPath?.(path);
+      setupApp.secretStorage = { getSecret: id => id === "fixture" ? "synthetic-setup-secret" : null, listSecrets: () => ["fixture"] };
+      let setupSaves = 0;
+      let setupRequests = 0;
+      let rejectSetup = false;
+      const setupPlugin = { app: setupApp, language, manifest: { version: "0.8.0" },
+        data: { settings: { ...setupFixture.config, language, allowPublish: true, autoCheck: true, autoPublish: true }, profiles: { preserved: setupFixture.profile } },
+        t: (message, values) => lib.translate(language, message, values),
+        persist: async () => { setupSaves++; }, automatic: { configure() {} } };
+      setupPlugin.testSetup = (draft, guard) => lib.verifySetup(setupApp, draft, () => ({
+        connect: async () => { setupRequests++; if (rejectSetup) throw new lib.ApiError("GET", 403); },
+        get: async () => { setupRequests++; return { results: [] }; },
+      }), guard);
+      setupPlugin.saveSetup = (...args) => lib.commitSetup(setupPlugin, ...args);
+      const beforeSetup = JSON.stringify(setupPlugin.data);
+      const beforeSetupBodies = JSON.stringify([...setupFixture.bodies]);
+      const setupButton = (panel, label) => {
+        const el = [...panel.contentEl.querySelectorAll("button")].find(button => button.textContent === setupPlugin.t(label));
+        if (!el) throw new Error("Missing setup control: " + label);
+        return el;
+      };
+      const setupClick = async (panel, label) => { const el = setupButton(panel, label); el.click(); await el.pending; };
+      const setupField = (panel, label, value) => {
+        const row = [...panel.contentEl.querySelectorAll(".setting-item")].find(item => item.querySelector("span")?.textContent === setupPlugin.t(label));
+        const input = row?.querySelector("input");
+        if (!input) throw new Error("Missing setup field: " + label);
+        input.value = value; input.dispatchEvent(new Event("input"));
+      };
+      const setupEntry = new lib.SyncDashboard(setupPlugin);
+      setupEntry.open();
+      await setupClick(setupEntry, "Open setup wizard");
+      const openedSetup = document.querySelector(".cfs-setup");
+      if (!openedSetup) throw new Error("Dashboard did not open setup wizard");
+      [...openedSetup.querySelectorAll("button")].find(button => button.textContent === setupPlugin.t("Cancel")).click();
+      const cancelledSetup = new lib.SetupModal(setupPlugin);
+      cancelledSetup.open();
+      setupField(cancelledSetup, "Confluence folder URL", "https://other.atlassian.net/wiki/spaces/DOC/folder/101");
+      await setupClick(cancelledSetup, "Cancel");
+      if (JSON.stringify(setupPlugin.data) !== beforeSetup || setupSaves || setupRequests) throw new Error("Cancelled draft changed stored settings or made requests");
+      const setupPanel = new lib.SetupModal(setupPlugin);
+      setupPanel.open();
+      await setupClick(setupPanel, "Next");
+      setupField(setupPanel, "Atlassian email", "wizard@example.com");
+      await setupClick(setupPanel, "Next");
+      setupField(setupPanel, "Import vault folder", "Docs/Bad inbox");
+      await setupClick(setupPanel, "Next");
+      if (setupPanel.step !== 2 || setupPanel.issue !== "FOLDERS") throw new Error("Overlapping folders were accepted");
+      setupField(setupPanel, "Import vault folder", "New inbox");
+      await setupClick(setupPanel, "Next");
+      if (!setupButton(setupPanel, "Save connection (read-only)").disabled) throw new Error("Setup saved without verification");
+      await setupClick(setupPanel, "Run read-only check");
+      if (!setupPanel.verified?.ok || setupSaves || setupRequests !== 2) throw new Error("Read-only setup verification failed");
+      let clipboard = "";
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async value => { clipboard = value; } } });
+      await setupClick(setupPanel, "Copy diagnostics");
+      if (JSON.parse(clipboard).outcome !== "pass") throw new Error("Diagnostic copy failed");
+      for (const privateValue of ["wizard@example.com", "example.atlassian.net", "New inbox", "synthetic-setup-secret", "tokenHash"]) {
+        if (clipboard.includes(privateValue)) throw new Error("Diagnostic report contains a private field");
+      }
+      await setupClick(setupPanel, "Back");
+      setupField(setupPanel, "Import vault folder", "Changed inbox");
+      if (setupPanel.contentEl.querySelector(".cfs-setup-report")) throw new Error("Edited draft still displays stale diagnostics");
+      await setupClick(setupPanel, "Next");
+      if (!setupButton(setupPanel, "Save connection (read-only)").disabled) throw new Error("Edited draft retained old verification");
+      await setupClick(setupPanel, "Run read-only check");
+      const profilesBeforeSave = JSON.stringify(setupPlugin.data.profiles);
+      await setupClick(setupPanel, "Save connection (read-only)");
+      if (!setupPanel.saved || setupSaves !== 1 || setupPlugin.data.settings.inbox !== "Changed inbox" ||
+          setupPlugin.data.settings.allowPublish || setupPlugin.data.settings.autoCheck || setupPlugin.data.settings.autoPublish ||
+          JSON.stringify(setupPlugin.data.profiles) !== profilesBeforeSave) throw new Error("Setup save lost guards or mappings");
+      await setupClick(setupPanel, "Close");
+      if (JSON.stringify([...setupFixture.bodies]) !== beforeSetupBodies) throw new Error("Setup changed a document");
+      rejectSetup = true;
+      const failedSetup = new lib.SetupModal(setupPlugin);
+      failedSetup.step = 3;
+      failedSetup.open();
+      await setupClick(failedSetup, "Run read-only check");
+      if (failedSetup.issue !== "FORBIDDEN" || !setupButton(failedSetup, "Save connection (read-only)").disabled ||
+          !failedSetup.contentEl.textContent.includes(setupPlugin.t("Read access was denied."))) throw new Error("Localized setup permission diagnostic failed");
+      await setupClick(failedSetup, "Cancel");
+
       return {
         newFeaturesVerified: true,
         diffVerified,
@@ -374,7 +467,7 @@ const puppeteer = require("puppeteer-core");
       };
     }, { source: bundle, language, fixtures });
     assert.deepEqual(result, { newFeaturesVerified: true, diffVerified: true, originalProtected: true, baselinePreserved: true, savedSnapshots: 2 });
-    console.log(language + " " + width + "px Chromium fixture passed: mapping reconnection/cancellation/recovery/migration, selective publication, conflict UI, restoration, versions and attachments.");
+    console.log(language + " " + width + "px Chromium fixture passed: setup draft/check/save/cancel and redacted diagnostics, mapping management, selective publication, conflicts, restoration, versions and attachments.");
     }
     }
     assert.deepEqual(errors, [], "Browser page errors");

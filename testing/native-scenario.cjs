@@ -3,7 +3,7 @@ module.exports = async function nativeScenario({ expectedVault, source }) {
   const check = (value, message) => { if (!value) throw new Error(message); };
   check(app.vault.adapter.getBasePath().replace(/\\/g, "/") === expectedVault.replace(/\\/g, "/"), "Fixture vault guard failed");
   const api = window.__cfsTestApi;
-  const lib = new Function("require", "module", source + "\nreturn { SyncDashboard, HistoryModal, incoming, digest, prepareLocalReview, applyLocalReview, publicationTarget };")(
+  const lib = new Function("require", "module", source + "\nreturn { SetupModal, verifySetup, setupDiagnostics, SyncDashboard, HistoryModal, incoming, digest, prepareLocalReview, applyLocalReview, publicationTarget };")(
     name => { if (name !== "obsidian") throw new Error("Unexpected dependency"); return api; }, { exports: {} });
   let plugin = app.plugins.plugins["confluence-folder-sync"];
   check(plugin instanceof api.Plugin, "Production plugin did not load as a real Obsidian Plugin");
@@ -40,6 +40,35 @@ module.exports = async function nativeScenario({ expectedVault, source }) {
     const profile = { folders: {}, imports: {}, pages: { "file:Docs/One.md": { id: "201", version: 1, parent: "100", title: "One", bodyHash: "synthetic", sourceHash: await lib.digest(original) } } };
     plugin.data.profiles[lib.publicationTarget(config)] = profile;
     await plugin.persist();
+    let setupReads = 0;
+    plugin.testSetup = (draft, guard) => plugin.exclusive(() => lib.verifySetup(app, draft, () => ({
+      connect: async () => { setupReads++; }, get: async () => { setupReads++; return { results: [] }; },
+    }), guard));
+    const setupBaseline = JSON.stringify(plugin.data.settings);
+    const cancelledSetup = new lib.SetupModal(plugin);
+    cancelledSetup.open();
+    cancelledSetup.change("email", "cancelled@example.com");
+    cancelledSetup.close();
+    check(JSON.stringify(plugin.data.settings) === setupBaseline, "Native setup cancellation changed settings");
+    const setup = new lib.SetupModal(plugin);
+    setup.open();
+    setup.next(); // Actual SecretComponent is constructed in the account step.
+    check(setup.step === 1 && setup.contentEl.querySelector(".setting-item"), "Native account step failed");
+    setup.change("email", "setup-checked@example.com");
+    setup.next(); setup.next();
+    check(setup.step === 3, "Native folder validation failed");
+    await setup.verify();
+    check(setup.verified?.ok && setupReads === 2, "Native read-only setup check failed: " + setup.issue);
+    const diagnostic = JSON.stringify(setup.report);
+    for (const value of [expectedVault, "setup-checked@example.com", "example.atlassian.net", secretId, secretValue, "tokenHash"]) {
+      check(!diagnostic.includes(value), "Native diagnostic report leaked a private field");
+    }
+    const setupMappings = JSON.stringify(plugin.data.profiles);
+    await setup.save();
+    check(setup.saved && plugin.data.settings.email === "setup-checked@example.com", "Native setup save failed: " + setup.issue);
+    check(JSON.stringify(plugin.data.profiles) === setupMappings && !plugin.data.settings.allowPublish &&
+      !plugin.data.settings.autoCheck && !plugin.data.settings.autoPublish, "Native setup lost mappings or enabled publication");
+    setup.close();
     // Replace only the remote connection boundary; local filesystem, UI, history and events remain real.
     plugin.withConnection = task => plugin.exclusive(() => task({ client, config, profile, folder: { id: "100", title: "Synthetic folder" }, save: () => plugin.persist() }));
     const dashboard = new lib.SyncDashboard(plugin);
@@ -68,7 +97,7 @@ module.exports = async function nativeScenario({ expectedVault, source }) {
     check(imported && await app.vault.read(app.vault.getFileByPath(imported.path)), "Native page import failed");
     const attachment = app.vault.getFiles().find(file => file.path.startsWith(config.inbox + "/") && file.path.endsWith("/Attachments/501-v1-doc.png"));
     check(attachment && new Uint8Array(await app.vault.readBinary(attachment))[1] === 37, "Native binary attachment bytes mismatch");
-    results.push({ language, ui: true, selectedApplication: true, backupRestoration: true, binaryImport: true });
+    results.push({ language, setupWizard: true, redactedDiagnostics: true, ui: true, selectedApplication: true, backupRestoration: true, binaryImport: true });
   }
   const profile = Object.values(plugin.data.profiles).find(value => value.pages["file:Docs/One.md"]);
   await app.vault.rename(sourceFile, "Docs/Renamed.md");

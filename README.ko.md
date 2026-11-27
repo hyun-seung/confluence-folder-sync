@@ -9,24 +9,26 @@ PC의 Obsidian 보관함과 Confluence Cloud를 연결하는 데스크톱 플러
 ## 설치
 
 1. [Releases](https://github.com/hyun-seung/confluence-folder-sync/releases)에서 최신 릴리스을 엽니다.
-2. [confluence-folder-sync-0.7.0.zip](https://github.com/hyun-seung/confluence-folder-sync/releases/download/0.7.0/confluence-folder-sync-0.7.0.zip)을 내려받고 압축을 풉니다. 안에 있는 `confluence-folder-sync` 폴더를 보관함의 `.obsidian/plugins/`에 넣습니다. macOS Finder에서는 `Command + Shift + .`으로 숨김 폴더를 표시할 수 있습니다.
+2. [confluence-folder-sync-0.8.0.zip](https://github.com/hyun-seung/confluence-folder-sync/releases/download/0.8.0/confluence-folder-sync-0.8.0.zip)을 내려받고 압축을 풉니다. 안에 있는 `confluence-folder-sync` 폴더를 보관함의 `.obsidian/plugins/`에 넣습니다. macOS Finder에서는 `Command + Shift + .`으로 숨김 폴더를 표시할 수 있습니다.
 3. 최종 경로가 `.obsidian/plugins/confluence-folder-sync/main.js`인지 확인합니다. 같은 폴더에 `manifest.json`과 `styles.css`도 있어야 합니다. ZIP 대신 릴리스의 개별 파일 3개를 직접 내려받아 같은 경로에 넣어도 됩니다.
 4. Obsidian의 **설정 → 커뮤니티 플러그인**에서 **Confluence Folder Sync**를 활성화합니다. Obsidian Desktop 1.14 이상이 필요합니다.
 
-GitHub가 자동 생성한 **Source code (zip)**은 개발용 소스 압축파일이며 폴더 구조가 다릅니다. 수동 설치에는 이름이 `confluence-folder-sync-버전.zip`인 파일을 사용하세요. 한 ZIP에서 한국어와 영어를 모두 지원합니다. 공식 커뮤니티 등록 후에는 Obsidian 안에서 설치하고 업데이트할 수 있게 됩니다.
+GitHub가 자동 생성한 **Source code (zip)**은 개발용 소스 압축파일이며 폴더 구조가 다릅니다. 수동 설치에는 이름이 `confluence-folder-sync-버전.zip`인 파일을 사용하세요. 한 ZIP에서 한국어와 영어를 모두 지원합니다. 공식 목록에 등록되어 있어 Obsidian 안에서도 설치·업데이트할 수 있습니다. 자동 검토·공개 상태와 직원 수동 검토는 구분합니다.
 
-## 처음 연결하기
+## 처음 연결하기: 설정 마법사
 
-처음에는 테스트용 Confluence 폴더와 테스트용 보관함으로 확인하세요.
+플러그인 설정이나 대시보드에서 **연결 설정·진단 → 설정 마법사 열기**를 누릅니다. 명령 팔레트에서도 **연결 설정·진단**을 실행할 수 있습니다. 처음에는 테스트용 Confluence 폴더와 보관함으로 확인하세요.
 
-1. 플러그인 설정의 **Confluence 폴더 URL**에 Confluence 사이드바에서 복사한 폴더 주소를 입력합니다. 일반 페이지 주소와 구분하세요. 예시는 `https://example.atlassian.net/wiki/spaces/DOC/folder/1234`입니다.
-2. **Atlassian 이메일**에 토큰을 발급한 계정의 이메일을 입력합니다.
-3. [Atlassian API 토큰 설정](https://id.atlassian.com/manage-profile/security/api-tokens)에서 범위 지정 토큰을 만들고, **Confluence API 토큰**의 Obsidian 비밀 선택기를 통해 저장·선택합니다.
-4. **발행할 보관함 폴더**와 **가져오기 보관함 폴더**를 보관함 기준 상대 경로로 입력합니다. 두 폴더가 겹치면 안 됩니다. 예를 들어 `Project`와 `Confluence inbox`를 사용합니다.
-5. **연결 테스트**를 실행합니다. 왼쪽 리본의 양방향 화살표 버튼이나 명령 팔레트에서 대시보드를 엽니다.
-6. 업로드하려면 **발행 허용**을 켭니다. **발행할 문서 검토**에서 문서를 선택하고 **선택한 문서 발행**을 실행한 뒤 확인창에서 대상을 확인합니다.
+1. **Confluence 대상**: 사이드바에서 복사한 HTTPS 폴더 URL을 입력합니다. 일반 페이지 주소는 사용할 수 없습니다.
+2. **계정·토큰**: 토큰을 발급한 Atlassian 이메일을 입력하고 Obsidian 비밀 저장소에서 토큰을 선택합니다. 토큰 발급은 [Atlassian API 토큰 설정](https://id.atlassian.com/manage-profile/security/api-tokens)에서 합니다. 토큰 값은 플러그인 연결 설정에 저장하지 않습니다.
+3. **로컬 폴더**: 이미 있는 보이는 원본 폴더와 별도의 가져오기 폴더를 상대 경로로 지정합니다. 문서 본문을 읽지 않고 보이는 Markdown 항목 수를 확인하며, 폴더나 문서를 만들지 않습니다. 없는 가져오기 폴더는 실제 가져오기 때만 만듭니다.
+4. **확인·저장**: 입력을 검토하고 **읽기 전용 검사 실행**을 누릅니다. 계정·폴더 접근 및 최대 1개 항목의 하위 목록 응답을 검사하며 추가 페이지네이션을 따라가지 않습니다. 테스트 페이지나 첨부파일은 만들지 않고, 발행 권한이 있다고 보장하지 않습니다. **연결 저장 (읽기 전용)**을 누르면 연결 5개 항목만 저장하고 기존 연결·이력을 유지하며 발행·자동 확인·자동 발행은 모두 끕니다.
 
-기본 발행은 사용자가 명령이나 버튼을 실행할 때 작동합니다. 자동 확인과 기존 연결 문서의 자동 발행은 별도로 켤 수 있으며 기본값은 꺼짐입니다. 양쪽 변경을 자동 병합하지 않으며, 변경 없는 문서는 기존 연결 정보를 사용해 건너뜁니다.
+입력 변경·선택한 비밀 변경·5분 경과 시 다시 검사해야 합니다. 다른 창에서 저장된 설정이 바뀌면 마법사를 다시 여세요. 취소하면 연결 초안을 채택하지 않습니다. 저장 도중 창을 닫으면 진행 중인 로컬 I/O가 끝난 뒤 이전 설정을 복원하며, 복원 실패는 별도로 안내합니다. Obsidian 비밀 관리자에서 편집한 비밀 항목은 별도 저장되므로 마법사를 취소해도 되돌리지 않습니다. 기존 개별 설정과 **연결 테스트**도 계속 사용할 수 있습니다.
+
+검사 실패 시 URL·폴더·비밀 항목·인증 거절·읽기 권한·폴더 접근·서버 제한별 조치 방법을 안내합니다. **진단 보고서 복사**는 화면에 보이는 JSON을 로컬 클립보드로 복사합니다. 공개 플러그인 ID·플러그인/Obsidian 버전·고정 검사/오류 코드·HTTP 상태만 포함하고 사이트 주소·계정 이메일·보관함 경로·연결/비밀 ID·토큰 값/해시·문서 본문은 제외합니다. 자동 업로드하거나 문서 파일로 저장하지 않습니다.
+
+발행하려면 별도로 **발행 허용**을 켜고 **발행할 문서 검토 → 문서 선택 → 선택한 문서 발행**을 실행한 뒤 확인창에서 대상을 확인합니다. 자동 확인·발행은 별도 선택 사항이며 원격 변경을 무인으로 로컬에 반영하지 않습니다.
 
 ## 일상적인 사용 순서
 
@@ -50,6 +52,7 @@ GitHub가 자동 생성한 **Source code (zip)**은 개발용 소스 압축파�
 
 | 버튼 | 동작 |
 | --- | --- |
+| **설정 마법사 열기** | 연결 초안·읽기 권한을 검사하고 자동 처리를 끈 상태로 저장하거나 민감정보를 제외한 진단 보고서를 복사합니다. |
 | **변경 사항 미리 보기** | 기록한 버전과 Confluence를 비교해 보고서를 저장합니다. 양쪽 본문 변경, 제목·위치 변경, 첨부파일 추가·수정·삭제를 확인합니다. 페이지 버전이 같아도 첨부파일 변경을 검사합니다. |
 | **새 페이지 가져오기** | 연결되지 않은 새 페이지와 첨부파일을 `Imported pages` 아래에 저장하고, 다음 비교에 사용할 버전을 기록합니다. 최초 내려받기에 사용할 수 있습니다. |
 | **전체 사본 내려받기** | 모든 페이지의 현재 버전을 `Snapshots` 아래 새 폴더에 저장합니다. 이미 추적하는 페이지도 새 사본으로 받을 수 있습니다. |
@@ -154,11 +157,11 @@ GitHub가 자동 생성한 **Source code (zip)**은 개발용 소스 압축파�
 
 공식 제출에는 사용 안내, `LICENSE`, manifest와 일치하는 GitHub 릴리스가 필요하며 [Obsidian Community](https://community.obsidian.md/)에서 진행합니다. macOS·Windows·Linux의 네이티브 합성 시험을 완료했으며 세부 범위와 한계는 시험 안내에서 확인할 수 있습니다. 공개 플러그인 ID의 사용 가능 여부도 제출 전에 확인합니다. [공식 등록 안내](https://docs.obsidian.md/plugins/releasing/submit-plugin)를 참고하세요. 변경 이력과 검증 범위는 [CHANGELOG.md](CHANGELOG.md)에 기록합니다.
 
-CI는 오프라인 `npm ci`로 루트 lockfile을 확인하고 Linux·macOS·Windows에서 Node 시험 78개와 영문·한글 Chromium 시험을 실행합니다. 생성한 `main.js`와 커밋한 파일의 일치 및 배포 정보·패키징도 검사합니다. 별도 작업에서는 SHA256을 고정한 공식 Obsidian을 내려받아 Windows·Linux의 임시 합성 보관함에서 실행합니다. 분리된 시험용 의존성 설치에만 npm 레지스트리 접근이 필요하며 모든 Confluence 응답은 합성입니다. 유지관리자는 Node.js 26과 패키징용 Python 3을 사용하며 사용자는 둘 다 설치할 필요가 없습니다.
+CI는 오프라인 `npm ci`로 루트 lockfile을 확인하고 Linux·macOS·Windows에서 Node 시험 96개와 영문·한글 Chromium 시험을 실행합니다. 생성한 `main.js`와 커밋한 파일의 일치 및 배포 정보·패키징도 검사합니다. 별도 작업에서는 SHA256을 고정한 공식 Obsidian을 내려받아 Windows·Linux의 임시 합성 보관함에서 실행합니다. 분리된 시험용 의존성 설치에만 npm 레지스트리 접근이 필요하며 모든 Confluence 응답은 합성입니다. 유지관리자는 Node.js 26과 패키징용 Python 3을 사용하며 사용자는 둘 다 설치할 필요가 없습니다.
 
 새 버전은 manifest·package·lockfile·versions·변경 이력과 설치 링크를 갱신하고 빌드·커밋한 뒤 정확한 `x.y.z` 태그를 푸시합니다. 릴리스 워크플로가 CI를 기다린 뒤 실행 파일 3개·두 언어의 안내·변경 이력·MIT 라이선스만 패키징하고 배포 파일에 빌드 출처 증명을 붙입니다. 초안을 만든 뒤 내려받은 파일·ZIP 허용 목록·서명 워크플로·원본 태그·커밋을 검증하고 공개합니다. 기존 릴리스 파일은 덮어쓰지 않습니다. 실패한 초안은 동일 커밋과 기존 파일이 모두 일치할 때 누락 파일만 추가하고 출처를 재검증해 재개합니다. 변경된 태그나 일치하지 않는 초안은 거절합니다. 일반 CI와 PR은 읽기 전용 권한이며 태그 릴리스 작업만 배포·출처 증명 권한을 사용합니다.
 
-로컬 패키징 검사는 `python3 -m unittest discover -s tools -p 'test_*.py' -v`로 실행합니다. `python3 tools/release.py --tag 0.7.0 --output /tmp/confluence-folder-sync-0.7.0`로 새 패키지를 만듭니다. 같은 릴리스에서 배포 파일을 내려받고 체크섬을 확인한 뒤 `gh attestation verify main.js --repo hyun-seung/confluence-folder-sync --signer-workflow hyun-seung/confluence-folder-sync/.github/workflows/release.yml --source-ref refs/tags/0.7.0`로 출처를 확인합니다. 다른 파일도 각각 검사하며 정확한 커밋까지 고정하려면 `--source-digest <태그의 전체 커밋>`을 추가합니다. [GitHub 출처 증명 안내](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations)를 참고하세요.
+로컬 패키징 검사는 `python3 -m unittest discover -s tools -p 'test_*.py' -v`로 실행합니다. `python3 tools/release.py --tag 0.8.0 --output /tmp/confluence-folder-sync-0.8.0`로 새 패키지를 만듭니다. 같은 릴리스에서 배포 파일을 내려받고 체크섬을 확인한 뒤 `gh attestation verify main.js --repo hyun-seung/confluence-folder-sync --signer-workflow hyun-seung/confluence-folder-sync/.github/workflows/release.yml --source-ref refs/tags/0.8.0`로 출처를 확인합니다. 다른 파일도 각각 검사하며 정확한 커밋까지 고정하려면 `--source-digest <태그의 전체 커밋>`을 추가합니다. [GitHub 출처 증명 안내](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations)를 참고하세요.
 
 공개 자료에는 합성 예시를 사용합니다. 개인 설정, 보관함 문서, 토큰, 동기화 상태와 사내 경로는 로컬에 유지하세요.
 

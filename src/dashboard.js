@@ -23,6 +23,8 @@ class SyncDashboard extends Modal {
     const { contentEl, t } = this;
     contentEl.empty();
     contentEl.createEl("h2", { text: "Confluence Folder Sync" });
+    new Setting(contentEl).setName(t("Connection setup and diagnostics"))
+      .addButton(button => button.setButtonText(t("Open setup wizard")).onClick(() => { this.close(); new SetupModal(this.plugin).open(); }));
     contentEl.createEl("p", { text: this.status, attr: { role: "status", "aria-live": "polite" } });
     if (this.plugin.automaticStatus) contentEl.createEl("p", { text: this.plugin.automaticStatus });
     const button = (label, callback, disabled = false) => component =>

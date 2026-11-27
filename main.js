@@ -2,6 +2,68 @@
 
 // English messages are stable translation keys. Interpolate values only after lookup.
 const KOREAN = {
+  "Connection setup and diagnostics": "연결 설정·진단",
+  "Check a draft connection step by step without publishing or changing notes.": "발행하거나 문서를 변경하지 않고 연결 초안을 단계별로 확인합니다.",
+  "Open setup wizard": "설정 마법사 열기",
+  "Wait until connection settings finish saving.": "연결 설정 저장이 끝날 때까지 기다려 주세요.",
+  "Check the Confluence folder URL.": "Confluence 폴더 URL을 확인하세요.",
+  "Copy an HTTPS folder URL from the Confluence sidebar, including /folder/ and its numeric ID.": "Confluence 사이드바에서 /folder/와 숫자 ID가 포함된 HTTPS 폴더 URL을 복사하세요.",
+  "Check the account and token selection.": "계정과 토큰 선택을 확인하세요.",
+  "Enter the Atlassian email that issued the token and select a secret stored in Obsidian.": "토큰을 발급한 Atlassian 이메일을 입력하고 Obsidian에 저장한 비밀 항목을 선택하세요.",
+  "The selected secret is unavailable.": "선택한 비밀 항목을 사용할 수 없습니다.",
+  "Create or select a token in Obsidian SecretStorage. Token values are never stored in connection settings.": "Obsidian 비밀 저장소에서 토큰을 만들거나 선택하세요. 토큰 값은 연결 설정에 저장하지 않습니다.",
+  "Check the local folder paths.": "로컬 폴더 경로를 확인하세요.",
+  "Use separate visible relative folders for source and imports. Hidden, absolute and overlapping paths are not allowed.": "원본과 가져오기는 별도의 보이는 상대 경로로 지정하세요. 숨김·절대·중첩 경로는 사용할 수 없습니다.",
+  "The source folder is unavailable.": "원본 폴더를 사용할 수 없습니다.",
+  "Choose an existing source folder in this vault. The wizard does not create or modify source notes.": "이 보관함에 있는 원본 폴더를 선택하세요. 마법사는 원본 문서를 만들거나 수정하지 않습니다.",
+  "A file occupies the import folder path.": "가져오기 폴더 경로에 파일이 있습니다.",
+  "Choose an import folder whose path is not occupied by a file. Missing folders are created only when importing.": "파일과 충돌하지 않는 가져오기 폴더를 지정하세요. 없는 폴더는 실제 가져오기 때만 만듭니다.",
+  "Authentication was rejected.": "인증이 거절되었습니다.",
+  "Check the Atlassian email, token expiration and selected secret, then test again.": "Atlassian 이메일·토큰 만료·선택한 비밀 항목을 확인하고 다시 검사하세요.",
+  "Read access was denied.": "읽기 권한이 거절되었습니다.",
+  "Check the token's Confluence read scopes and the account's folder restrictions with your administrator.": "관리자와 토큰의 Confluence 읽기 범위 및 계정의 폴더 접근 제한을 확인하세요.",
+  "The folder could not be found or accessed.": "폴더를 찾거나 접근할 수 없습니다.",
+  "Check the folder URL and account access. A hidden or inaccessible folder may also appear missing.": "폴더 URL과 계정 접근 권한을 확인하세요. 숨겨지거나 접근이 제한된 폴더도 없는 것처럼 보일 수 있습니다.",
+  "Confluence is temporarily limiting requests.": "Confluence 요청이 일시적으로 제한되었습니다.",
+  "Wait for the server's retry period, then test again.": "서버의 재시도 대기 시간이 지난 뒤 다시 검사하세요.",
+  "Confluence is temporarily unavailable.": "Confluence를 일시적으로 사용할 수 없습니다.",
+  "Try again later. No remote writes were attempted.": "잠시 뒤 다시 시도하세요. 원격 쓰기는 시도하지 않았습니다.",
+  "The connection could not be verified.": "연결을 확인하지 못했습니다.",
+  "Check your network or proxy and try again. Share only the redacted diagnostics if the issue continues.": "네트워크나 프록시를 확인하고 다시 시도하세요. 문제가 계속되면 민감정보를 제외한 진단 보고서만 공유하세요.",
+  "The setup check is no longer current.": "설정 검사 결과가 더 이상 유효하지 않습니다.",
+  "Test again after changing fields or the selected secret. Checks expire after five minutes.": "입력 항목이나 선택한 비밀이 바뀌면 다시 검사하세요. 검사 결과는 5분 후 만료됩니다.",
+  "The saved settings changed while this wizard was open.": "마법사가 열린 동안 저장된 설정이 변경되었습니다.",
+  "Close and reopen setup to use the latest settings. No connection settings were replaced.": "최신 설정을 사용하려면 마법사를 닫고 다시 여세요. 연결 설정은 교체하지 않았습니다.",
+  "Another sync operation is running.": "다른 동기화 작업이 실행 중입니다.",
+  "Wait for it to finish before testing or saving this connection.": "현재 작업이 끝난 뒤 연결을 검사하거나 저장하세요.",
+  "The connection settings could not be saved.": "연결 설정을 저장하지 못했습니다.",
+  "The previous settings were restored. Check local write access and try again.": "이전 설정을 복원했습니다. 로컬 쓰기 권한을 확인하고 다시 시도하세요.",
+  "The connection settings could not be saved or restored on disk.": "디스크에서 연결 설정을 저장하거나 복원하지 못했습니다.",
+  "Previous settings remain in memory. Check local write access and inspect settings before continuing.": "메모리에는 이전 설정이 남아 있습니다. 로컬 쓰기 권한과 저장된 설정을 확인한 뒤 계속하세요.",
+  "Setup was cancelled.": "설정을 취소했습니다.",
+  "Reopen setup when you are ready. No remaining connection checks will be started.": "준비가 되면 설정을 다시 여세요. 남은 연결 검사는 시작하지 않습니다.",
+  "Connection saved. Publishing and automatic sync are off.": "연결을 저장했습니다. 발행과 자동 동기화는 꺼져 있습니다.",
+  "Confluence target": "Confluence 대상",
+  "Account and token": "계정·토큰",
+  "Local folders": "로컬 폴더",
+  "Verify and save": "확인·저장",
+  "Step {step} of 4: {title}": "4단계 중 {step}단계: {title}",
+  "Inputs stay in this draft until Save connection. Existing page links are retained.": "연결 저장 전까지 입력은 초안으로 보관합니다. 기존 페이지 연결은 유지합니다.",
+  "Use a Confluence folder URL, not a page URL. No remote content is created by setup.": "페이지 URL 대신 Confluence 폴더 URL을 사용하세요. 설정 과정에서는 원격 콘텐츠를 만들지 않습니다.",
+  "Manage token values in Obsidian SecretStorage. Secret edits there are saved separately, even if this wizard is cancelled.": "토큰 값은 Obsidian 비밀 저장소에서 관리합니다. 비밀 항목 편집은 마법사를 취소해도 별도로 저장됩니다.",
+  "The source must exist. Imports use a separate folder; setup does not create folders or change notes.": "원본 폴더는 이미 있어야 합니다. 가져오기는 별도 폴더를 사용하며 설정 과정에서 폴더나 문서를 만들거나 변경하지 않습니다.",
+  "The test checks authentication and folder read access only. Publishing permissions are checked when publishing; no test page is created.": "인증과 폴더 읽기 권한만 검사합니다. 발행 권한은 실제 발행 때 확인하며 테스트 페이지는 만들지 않습니다.",
+  "Run read-only check": "읽기 전용 검사 실행",
+  "Read access verified. {count} source Markdown notes found.": "읽기 권한을 확인했습니다. 원본 Markdown 문서 {count}개를 찾았습니다.",
+  "Checking or saving connection…": "연결을 검사하거나 저장하는 중…",
+  "Diagnostics contain versions and check outcomes only. Site, account, paths, connection identifiers, tokens and content are excluded.": "진단 보고서에는 버전과 검사 결과만 포함합니다. 사이트·계정·경로·연결 식별자·토큰·본문은 제외합니다.",
+  "Copy diagnostics": "진단 보고서 복사",
+  "Redacted diagnostics copied.": "민감정보를 제외한 진단 보고서를 복사했습니다.",
+  "Could not copy diagnostics. Select the displayed report manually.": "진단 보고서를 복사하지 못했습니다. 표시된 보고서를 직접 선택하세요.",
+  "Save connection (read-only)": "연결 저장 (읽기 전용)",
+  "Next": "다음",
+  "Back": "이전",
+  "Close": "닫기",
   "Confluence request waiting timed out. Run the command again.": "Confluence 요청 대기 시간이 초과되었습니다. 명령을 다시 실행하세요.",
   "Confluence is temporarily limiting requests. Retry this command in at least {seconds} seconds.": "Confluence 요청이 일시적으로 제한되었습니다. 최소 {seconds}초 뒤에 명령을 다시 실행하세요.",
   "Confluence is busy. Waiting {seconds} seconds before retrying a read.": "Confluence가 혼잡합니다. {seconds}초 대기한 뒤 읽기 요청을 재시도합니다.",
@@ -406,7 +468,7 @@ class RequestQueue {
   }
 }
 
-const { Plugin, PluginSettingTab, Setting, SecretComponent, Notice, Modal, requestUrl, getLanguage } = require("obsidian");
+const { Plugin, PluginSettingTab, Setting, SecretComponent, Notice, Modal, requestUrl, getLanguage, apiVersion } = require("obsidian");
 
 const DESCENDANTS_DEPTH = 10;
 const API = "/wiki/api/v2";
@@ -443,10 +505,10 @@ function vaultPath(input) {
   return parts.join("/");
 }
 
-function validatedConfig(settings) {
+function confluenceTarget(folderUrl) {
   let url;
   try {
-    url = new URL(settings.folderUrl.trim());
+    url = new URL(folderUrl.trim());
   } catch {
     throw new Error("Enter a Confluence Cloud folder URL.");
   }
@@ -456,16 +518,29 @@ function validatedConfig(settings) {
     throw new Error("Enter the HTTPS URL of a Confluence Cloud folder.");
   }
 
-  const source = vaultPath(settings.source);
-  const inbox = vaultPath(settings.inbox);
+  return { origin: url.origin, folderId: match[1] };
+}
+
+function configuredFolders(sourceInput, inboxInput) {
+  const source = vaultPath(sourceInput);
+  const inbox = vaultPath(inboxInput);
   if (pathIn(source.toLowerCase(), inbox.toLowerCase()) || pathIn(inbox.toLowerCase(), source.toLowerCase())) {
     throw new Error("Choose separate source and import folders that do not overlap.");
   }
-  const email = settings.email.trim();
-  if (!/^[^\s:@]+@[^\s:@]+$/.test(email) || !settings.secretId) {
+  return { source, inbox };
+}
+
+function atlassianAccount(emailInput, secretId) {
+  const email = emailInput.trim();
+  if (!/^[^\s:@]+@[^\s:@]+$/.test(email) || typeof secretId !== "string" || !secretId.trim()) {
     throw new Error("Set an Atlassian email and select a token in the plugin settings.");
   }
-  return { ...settings, origin: url.origin, folderId: match[1], source, inbox, email };
+  return { email, secretId };
+}
+
+function validatedConfig(settings) {
+  return { ...settings, ...confluenceTarget(settings.folderUrl), ...configuredFolders(settings.source, settings.inbox),
+    ...atlassianAccount(settings.email, settings.secretId) };
 }
 
 async function digest(value) {
@@ -3067,6 +3142,322 @@ class MappingModal extends Modal {
   }
 }
 
+const SETUP_KEYS = ["folderUrl", "email", "secretId", "source", "inbox"];
+const SETUP_PHASES = ["target", "account", "folders", "readAccess"];
+const SETUP_ISSUES = {
+  TARGET: ["Check the Confluence folder URL.", "Copy an HTTPS folder URL from the Confluence sidebar, including /folder/ and its numeric ID."],
+  ACCOUNT: ["Check the account and token selection.", "Enter the Atlassian email that issued the token and select a secret stored in Obsidian."],
+  SECRET: ["The selected secret is unavailable.", "Create or select a token in Obsidian SecretStorage. Token values are never stored in connection settings."],
+  FOLDERS: ["Check the local folder paths.", "Use separate visible relative folders for source and imports. Hidden, absolute and overlapping paths are not allowed."],
+  SOURCE: ["The source folder is unavailable.", "Choose an existing source folder in this vault. The wizard does not create or modify source notes."],
+  INBOX: ["A file occupies the import folder path.", "Choose an import folder whose path is not occupied by a file. Missing folders are created only when importing."],
+  AUTH: ["Authentication was rejected.", "Check the Atlassian email, token expiration and selected secret, then test again."],
+  FORBIDDEN: ["Read access was denied.", "Check the token's Confluence read scopes and the account's folder restrictions with your administrator."],
+  NOT_FOUND: ["The folder could not be found or accessed.", "Check the folder URL and account access. A hidden or inaccessible folder may also appear missing."],
+  LIMITED: ["Confluence is temporarily limiting requests.", "Wait for the server's retry period, then test again."],
+  SERVICE: ["Confluence is temporarily unavailable.", "Try again later. No remote writes were attempted."],
+  REQUEST: ["The connection could not be verified.", "Check your network or proxy and try again. Share only the redacted diagnostics if the issue continues."],
+  STALE: ["The setup check is no longer current.", "Test again after changing fields or the selected secret. Checks expire after five minutes."],
+  SETTINGS_CHANGED: ["The saved settings changed while this wizard was open.", "Close and reopen setup to use the latest settings. No connection settings were replaced."],
+  BUSY: ["Another sync operation is running.", "Wait for it to finish before testing or saving this connection."],
+  SAVE: ["The connection settings could not be saved.", "The previous settings were restored. Check local write access and try again."],
+  SAVE_UNCERTAIN: ["The connection settings could not be saved or restored on disk.", "Previous settings remain in memory. Check local write access and inspect settings before continuing."],
+  CANCELLED: ["Setup was cancelled.", "Reopen setup when you are ready. No remaining connection checks will be started."],
+};
+
+class SetupIssue extends Error {
+  constructor(code) { super(code); this.code = code; }
+}
+
+function setupDraft(settings) {
+  return Object.fromEntries(SETUP_KEYS.map(key => [key, typeof settings[key] === "string" ? settings[key] : ""]));
+}
+
+function setupFingerprint(settings) { return JSON.stringify(setupDraft(settings)); }
+
+function setupIssueCode(error) {
+  if (error instanceof SetupIssue && Object.hasOwn(SETUP_ISSUES, error.code)) return error.code;
+  if (error?.name === "AbortError") return "CANCELLED";
+  if (error instanceof RetryWaitError) return "LIMITED";
+  if (error instanceof ApiError) {
+    return ({ 401: "AUTH", 403: "FORBIDDEN", 404: "NOT_FOUND", 429: "LIMITED", 503: "SERVICE" })[error.status] ?? "REQUEST";
+  }
+  if (error?.message === "A Confluence command is already running in this vault.") return "BUSY";
+  return "REQUEST";
+}
+
+function setupTarget(draft) {
+  try { return confluenceTarget(draft.folderUrl); } catch { throw new SetupIssue("TARGET"); }
+}
+
+function setupAccount(app, draft) {
+  let account;
+  try { account = atlassianAccount(draft.email, draft.secretId); } catch { throw new SetupIssue("ACCOUNT"); }
+  try {
+    if (!app.secretStorage.getSecret(account.secretId)) throw new Error();
+  } catch { throw new SetupIssue("SECRET"); }
+  return account;
+}
+
+function setupFolders(app, draft) {
+  let paths;
+  try { paths = configuredFolders(draft.source, draft.inbox); } catch { throw new SetupIssue("FOLDERS"); }
+  const source = app.vault.getFolderByPath(paths.source);
+  if (!source) throw new SetupIssue("SOURCE");
+  let noteCount;
+  try { noteCount = sourceMarkdownFiles(source, paths.source).length; } catch { throw new SetupIssue("SOURCE"); }
+  let prefix = "";
+  for (const part of paths.inbox.split("/")) {
+    prefix = prefix ? prefix + "/" + part : part;
+    if (app.vault.getAbstractFileByPath(prefix) && !app.vault.getFolderByPath(prefix)) throw new SetupIssue("INBOX");
+  }
+  return { ...paths, noteCount, inboxMissing: !app.vault.getFolderByPath(paths.inbox) };
+}
+
+function inspectSetup(app, draft) {
+  const checks = [];
+  const values = {};
+  for (const [id, inspect] of [["target", () => setupTarget(draft)], ["account", () => setupAccount(app, draft)],
+    ["folders", () => setupFolders(app, draft)]]) {
+    try { Object.assign(values, inspect()); checks.push({ id, status: "pass" }); }
+    catch (error) { checks.push({ id, status: "fail", code: setupIssueCode(error) }); }
+  }
+  return { ok: checks.every(check => check.status === "pass"), checks, values };
+}
+
+async function verifySetup(app, draft, createClient, check = async () => {}) {
+  const snapshot = setupDraft(draft);
+  await check();
+  const local = inspectSetup(app, snapshot);
+  const result = { ok: false, checks: local.checks, fingerprint: setupFingerprint(snapshot), checkedAt: Date.now() };
+  if (!local.ok) return result;
+  try {
+    const config = { ...snapshot, ...local.values, allowPublish: false, autoCheck: false, autoPublish: false };
+    const token = app.secretStorage.getSecret(config.secretId);
+    if (!token) throw new SetupIssue("SECRET");
+    const tokenHash = await digest(token);
+    await check();
+    const client = createClient(config, token, check);
+    await client.connect();
+    await check();
+    const descendants = await client.get(API + "/folders/" + config.folderId + "/descendants", { limit: 1, depth: 1 });
+    if (!Array.isArray(descendants.results)) throw new Error();
+    await check();
+    const current = inspectSetup(app, snapshot);
+    if (!current.ok) return { ...result, checks: current.checks };
+    if (await digest(app.secretStorage.getSecret(config.secretId) ?? "") !== tokenHash) throw new SetupIssue("STALE");
+    await check();
+    return { ...result, ok: true, checks: [...current.checks, { id: "readAccess", status: "pass" }],
+      tokenHash, noteCount: current.values.noteCount, checkedAt: Date.now() };
+  } catch (error) {
+    if (error?.name === "AbortError" || error instanceof SetupIssue && error.code === "SETTINGS_CHANGED") throw error;
+    const status = error instanceof ApiError && Number.isInteger(error.status) && error.status >= 100 && error.status <= 599 ? error.status : undefined;
+    return { ...result, checks: [...result.checks, { id: "readAccess", status: "fail", code: setupIssueCode(error), httpStatus: status }] };
+  }
+}
+
+function setupDiagnostics(plugin, result, issue) {
+  const version = value => typeof value === "string" && /^\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/.test(value) ? value : "unknown";
+  const report = { schema: 1, plugin: "confluence-folder-sync", pluginVersion: version(plugin.manifest?.version),
+    obsidianVersion: version(apiVersion), outcome: result?.ok === true ? "pass" : "not-verified", checks: [] };
+  for (const item of result?.checks ?? []) {
+    if (!SETUP_PHASES.includes(item.id)) continue;
+    const entry = { check: item.id, outcome: item.status === "pass" ? "pass" : "fail" };
+    if (Object.hasOwn(SETUP_ISSUES, item.code)) entry.code = item.code;
+    if (Number.isInteger(item.httpStatus) && item.httpStatus >= 100 && item.httpStatus <= 599) entry.httpStatus = item.httpStatus;
+    report.checks.push(entry);
+  }
+  if (Object.hasOwn(SETUP_ISSUES, issue)) report.issue = issue;
+  return report;
+}
+
+function requireSetupProof(draft, verified) {
+  if (!verified?.ok || verified.fingerprint !== setupFingerprint(draft) || !Number.isFinite(verified.checkedAt) ||
+      Date.now() - verified.checkedAt < 0 || Date.now() - verified.checkedAt > 300000) throw new SetupIssue("STALE");
+}
+
+async function commitSetup(plugin, draft, verified, baseline, check = async () => {}) {
+  if (plugin.setupSaving) throw new SetupIssue("BUSY");
+  plugin.setupSaving = true;
+  try {
+    await check();
+    if (JSON.stringify(plugin.data.settings) !== baseline) throw new SetupIssue("SETTINGS_CHANGED");
+    requireSetupProof(draft, verified);
+    const local = inspectSetup(plugin.app, draft);
+    if (!local.ok) throw new SetupIssue(local.checks.find(item => item.status === "fail").code);
+    const token = plugin.app.secretStorage.getSecret(draft.secretId) ?? "";
+    if (await digest(token) !== verified.tokenHash) throw new SetupIssue("STALE");
+    await check();
+    if (JSON.stringify(plugin.data.settings) !== baseline) throw new SetupIssue("SETTINGS_CHANGED");
+    requireSetupProof(draft, verified);
+    const current = inspectSetup(plugin.app, draft);
+    if (!current.ok) throw new SetupIssue(current.checks.find(item => item.status === "fail").code);
+    if (plugin.app.secretStorage.getSecret(draft.secretId) !== token) throw new SetupIssue("STALE");
+    const previous = structuredClone(plugin.data.settings);
+    plugin.data.settings = { ...previous, ...setupDraft({ ...draft, ...current.values }), folderUrl: draft.folderUrl.trim(),
+      allowPublish: false, autoCheck: false, autoPublish: false };
+    const savedFingerprint = JSON.stringify(plugin.data.settings);
+    try {
+      await plugin.persist();
+      await check(savedFingerprint);
+      requireSetupProof(draft, verified);
+      if (JSON.stringify(plugin.data.settings) !== savedFingerprint) throw new SetupIssue("SETTINGS_CHANGED");
+      const final = inspectSetup(plugin.app, draft);
+      if (!final.ok) throw new SetupIssue(final.checks.find(item => item.status === "fail").code);
+      if (plugin.app.secretStorage.getSecret(draft.secretId) !== token) throw new SetupIssue("STALE");
+    } catch (error) {
+      plugin.data.settings = previous;
+      try { await plugin.persist(); } catch { throw new SetupIssue("SAVE_UNCERTAIN"); }
+      if (error instanceof SetupIssue || error?.name === "AbortError") throw error;
+      throw new SetupIssue("SAVE");
+    }
+    plugin.automatic?.configure();
+  } finally { plugin.setupSaving = false; }
+}
+
+class SetupModal extends Modal {
+  constructor(plugin, onSaved = () => {}) {
+    super(plugin.app);
+    this.plugin = plugin;
+    this.t = (message, values) => plugin.t(message, values);
+    this.baseline = JSON.stringify(plugin.data.settings);
+    this.draft = setupDraft(plugin.data.settings);
+    this.step = 0;
+    this.onSaved = onSaved;
+  }
+
+  onOpen() { this.opened = true; this.contentEl.addClass("cfs-setup"); this.render(); }
+  onClose() { this.opened = false; this.contentEl.empty(); }
+
+  change(key, value) {
+    this.draft[key] = value;
+    this.verified = null;
+    this.issue = null;
+    this.report = null;
+    this.reportContainer?.remove();
+    this.issueContainer?.remove();
+  }
+
+  guard(fingerprint, settings = this.baseline) {
+    if (!this.opened || this.plugin.unloaded) { const error = new Error(); error.name = "AbortError"; throw error; }
+    if (setupFingerprint(this.draft) !== fingerprint) throw new SetupIssue("STALE");
+    if (JSON.stringify(this.plugin.data.settings) !== settings) throw new SetupIssue("SETTINGS_CHANGED");
+  }
+
+  render() {
+    const { contentEl, t, plugin } = this;
+    contentEl.empty();
+    this.reportContainer = null;
+    this.issueContainer = null;
+    contentEl.createEl("h2", { text: t("Connection setup and diagnostics") });
+    if (this.saved) {
+      contentEl.createEl("p", { text: t("Connection saved. Publishing and automatic sync are off.") });
+      new Setting(contentEl).addButton(button => button.setButtonText(t("Close")).onClick(() => this.close()));
+      return;
+    }
+    const titles = ["Confluence target", "Account and token", "Local folders", "Verify and save"];
+    contentEl.createEl("p", { text: t("Step {step} of 4: {title}", { step: this.step + 1, title: t(titles[this.step]) }), attr: { "aria-live": "polite" } });
+    contentEl.createEl("p", { text: t("Inputs stay in this draft until Save connection. Existing page links are retained.") });
+    const text = (name, key, placeholder) => new Setting(contentEl).setName(t(name)).addText(field =>
+      field.setValue(this.draft[key]).setPlaceholder(placeholder).setDisabled(this.busy)
+        .onChange(value => this.change(key, value)));
+    if (this.step === 0) {
+      text("Confluence folder URL", "folderUrl", "https://example.atlassian.net/wiki/spaces/DOC/folder/1234");
+      contentEl.createEl("p", { text: t("Use a Confluence folder URL, not a page URL. No remote content is created by setup.") });
+    } else if (this.step === 1) {
+      text("Atlassian email", "email", "name@example.com");
+      new Setting(contentEl).setName(t("Confluence API token"))
+        .addComponent(el => new SecretComponent(plugin.app, el).setValue(this.draft.secretId)
+          .onChange(value => this.change("secretId", value ?? "")));
+      contentEl.createEl("p", { text: t("Manage token values in Obsidian SecretStorage. Secret edits there are saved separately, even if this wizard is cancelled.") });
+    } else if (this.step === 2) {
+      text("Source vault folder", "source", "Project");
+      text("Import vault folder", "inbox", "Confluence inbox");
+      contentEl.createEl("p", { text: t("The source must exist. Imports use a separate folder; setup does not create folders or change notes.") });
+    } else {
+      for (const [label, key] of [["Confluence folder URL", "folderUrl"], ["Atlassian email", "email"],
+        ["Source vault folder", "source"], ["Import vault folder", "inbox"]]) {
+        new Setting(contentEl).setName(t(label)).setDesc(this.draft[key]);
+      }
+      contentEl.createEl("p", { text: t("The test checks authentication and folder read access only. Publishing permissions are checked when publishing; no test page is created.") });
+      new Setting(contentEl).addButton(button => button.setButtonText(t("Run read-only check")).setDisabled(this.busy)
+        .onClick(() => this.verify()));
+      if (this.verified?.ok) contentEl.createEl("p", { text: t("Read access verified. {count} source Markdown notes found.", { count: this.verified.noteCount }) });
+    }
+    if (this.busy) contentEl.createEl("p", { text: t("Checking or saving connection…"), attr: { role: "status" } });
+    if (this.issue) {
+      this.issueContainer = contentEl.createDiv();
+      this.issueContainer.createEl("p", { text: t(SETUP_ISSUES[this.issue][0]), attr: { role: "alert" } });
+      this.issueContainer.createEl("p", { text: t(SETUP_ISSUES[this.issue][1]) });
+    }
+    if (this.report) {
+      this.reportContainer = contentEl.createDiv();
+      this.reportContainer.createEl("p", { text: t("Diagnostics contain versions and check outcomes only. Site, account, paths, connection identifiers, tokens and content are excluded.") });
+      this.reportContainer.createEl("pre", { text: JSON.stringify(this.report, null, 2), cls: "cfs-setup-report" });
+      new Setting(this.reportContainer).addButton(button => button.setButtonText(t("Copy diagnostics")).setDisabled(this.busy)
+        .onClick(async () => {
+          try { await navigator.clipboard.writeText(JSON.stringify(this.report, null, 2)); new Notice(t("Redacted diagnostics copied.")); }
+          catch { new Notice(t("Could not copy diagnostics. Select the displayed report manually.")); }
+        }));
+    }
+    const navigation = new Setting(contentEl);
+    navigation.addButton(button => button.setButtonText(t("Cancel")).onClick(() => this.close()));
+    if (this.step > 0) navigation.addButton(button => button.setButtonText(t("Back")).setDisabled(this.busy)
+      .onClick(() => { this.step--; this.issue = null; this.render(); }));
+    if (this.step < 3) navigation.addButton(button => button.setButtonText(t("Next")).setDisabled(this.busy)
+      .onClick(() => this.next()));
+    else navigation.addButton(button => button.setButtonText(t("Save connection (read-only)")).setCta()
+      .setDisabled(this.busy || !this.verified?.ok).onClick(() => this.save()));
+  }
+
+  next() {
+    try {
+      if (this.step === 0) setupTarget(this.draft);
+      else if (this.step === 1) setupAccount(this.app, this.draft);
+      else setupFolders(this.app, this.draft);
+      this.step++;
+      this.issue = null;
+    } catch (error) { this.issue = setupIssueCode(error); }
+    this.render();
+  }
+
+  async verify() {
+    this.busy = true;
+    this.issue = null;
+    this.verified = null;
+    this.render();
+    const fingerprint = setupFingerprint(this.draft);
+    try {
+      const result = await this.plugin.testSetup(this.draft, () => this.guard(fingerprint));
+      this.guard(fingerprint);
+      this.verified = result;
+      this.issue = result.checks.find(item => item.status === "fail")?.code;
+    } catch (error) { this.issue = setupIssueCode(error); }
+    finally {
+      this.report = setupDiagnostics(this.plugin, this.verified, this.issue);
+      this.busy = false;
+      if (this.opened) this.render();
+    }
+  }
+
+  async save() {
+    this.busy = true;
+    this.issue = null;
+    this.render();
+    const fingerprint = setupFingerprint(this.draft);
+    try {
+      await this.plugin.saveSetup(this.draft, this.verified, this.baseline, expected => this.guard(fingerprint, expected));
+      this.saved = true;
+      this.onSaved();
+    } catch (error) { this.issue = setupIssueCode(error); this.verified = null; }
+    finally {
+      this.report = setupDiagnostics(this.plugin, this.verified, this.issue);
+      this.busy = false;
+      if (this.opened) this.render();
+    }
+  }
+}
+
 class SyncDashboard extends Modal {
   constructor(plugin) {
     super(plugin.app);
@@ -3092,6 +3483,8 @@ class SyncDashboard extends Modal {
     const { contentEl, t } = this;
     contentEl.empty();
     contentEl.createEl("h2", { text: "Confluence Folder Sync" });
+    new Setting(contentEl).setName(t("Connection setup and diagnostics"))
+      .addButton(button => button.setButtonText(t("Open setup wizard")).onClick(() => { this.close(); new SetupModal(this.plugin).open(); }));
     contentEl.createEl("p", { text: this.status, attr: { role: "status", "aria-live": "polite" } });
     if (this.plugin.automaticStatus) contentEl.createEl("p", { text: this.plugin.automaticStatus });
     const button = (label, callback, disabled = false) => component =>
@@ -3397,6 +3790,9 @@ class SyncSettings extends PluginSettingTab {
     containerEl.empty();
     const settings = plugin.data.settings;
     const t = (message, values) => plugin.t(message, values);
+    new Setting(containerEl).setName(t("Connection setup and diagnostics"))
+      .setDesc(t("Check a draft connection step by step without publishing or changing notes."))
+      .addButton(button => button.setButtonText(t("Open setup wizard")).onClick(() => new SetupModal(plugin, () => this.display()).open()));
     new Setting(containerEl).setName(t("Language"))
       .setDesc(t("Follow Obsidian or choose the language for this plugin."))
       .addDropdown(dropdown => dropdown.addOption("auto", t("Follow Obsidian"))
@@ -3472,6 +3868,7 @@ class ConfluenceFolderSync extends Plugin {
     this.ribbon = this.addRibbonIcon("arrow-right-left", this.t("Open Confluence sync dashboard"), openDashboard);
     this.commandDefinitions = [
       { id: "dashboard", name: "Open sync dashboard", callback: openDashboard },
+      { id: "setup", name: "Connection setup and diagnostics", callback: () => new SetupModal(this).open() },
       { id: "connections", name: "Connections and recovery", callback: () => new MappingModal(this).open() },
       { id: "history", name: "Activity and backups", callback: () => new HistoryModal(this).open() },
       { id: "publish", name: "Publish vault folder to Confluence", callback: () => this.run("publish") },
@@ -3552,6 +3949,10 @@ class ConfluenceFolderSync extends Plugin {
   }
 
   async configure(key, value) {
+    if (this.setupSaving) {
+      new Notice(this.t("Wait until connection settings finish saving."));
+      return;
+    }
     this.data.settings[key] = value;
     if (["folderUrl", "source", "email", "secretId"].includes(key) ||
         (key === "allowPublish" && !value) || (key === "autoCheck" && !value)) {
@@ -3568,6 +3969,15 @@ class ConfluenceFolderSync extends Plugin {
 
   confirm(title, summary, button) {
     return new Promise(resolve => new Confirmation(this.app, title, summary, button, this.t("Cancel"), resolve).open());
+  }
+
+  testSetup(draft, check) {
+    return this.exclusive(() => verifySetup(this.app, draft,
+      (config, token, guard) => new ConfluenceCloud(config, token, requestUrl, { check: guard }), check));
+  }
+
+  saveSetup(draft, verified, baseline, check) {
+    return this.exclusive(() => commitSetup(this, draft, verified, baseline, check));
   }
 
   async exclusive(task) {
