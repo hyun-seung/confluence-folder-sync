@@ -9,7 +9,7 @@ PC의 Obsidian 보관함과 Confluence Cloud를 연결하는 데스크톱 플러
 ## 설치
 
 1. [Releases](https://github.com/hyun-seung/confluence-folder-sync/releases)에서 최신 릴리스을 엽니다.
-2. [confluence-folder-sync-0.9.0.zip](https://github.com/hyun-seung/confluence-folder-sync/releases/download/0.9.0/confluence-folder-sync-0.9.0.zip)을 내려받고 압축을 풉니다. 안에 있는 `confluence-folder-sync` 폴더를 보관함의 `.obsidian/plugins/`에 넣습니다. macOS Finder에서는 `Command + Shift + .`으로 숨김 폴더를 표시할 수 있습니다.
+2. [confluence-folder-sync-0.9.1.zip](https://github.com/hyun-seung/confluence-folder-sync/releases/download/0.9.1/confluence-folder-sync-0.9.1.zip)을 내려받고 압축을 풉니다. 안에 있는 `confluence-folder-sync` 폴더를 보관함의 `.obsidian/plugins/`에 넣습니다. macOS Finder에서는 `Command + Shift + .`으로 숨김 폴더를 표시할 수 있습니다.
 3. 최종 경로가 `.obsidian/plugins/confluence-folder-sync/main.js`인지 확인합니다. 같은 폴더에 `manifest.json`과 `styles.css`도 있어야 합니다. ZIP 대신 릴리스의 개별 파일 3개를 직접 내려받아 같은 경로에 넣어도 됩니다.
 4. Obsidian의 **설정 → 커뮤니티 플러그인**에서 **Confluence Folder Sync**를 활성화합니다. Obsidian Desktop 1.14 이상이 필요합니다.
 
@@ -172,7 +172,7 @@ CI는 설치 스크립트를 끄고 고정한 빌드 의존성을 설치하며 L
 
 새 버전은 manifest·package·lockfile·versions·변경 이력과 설치 링크를 갱신하고 빌드·커밋한 뒤 정확한 `x.y.z` 태그를 푸시합니다. 릴리스 워크플로가 CI를 기다린 뒤 실행 파일 3개·두 언어의 안내·변경 이력·MIT 라이선스·번들 의존성 고지를 패키징하고 배포 파일에 빌드 출처 증명을 붙입니다. 초안을 만든 뒤 내려받은 파일·ZIP 허용 목록·서명 워크플로·원본 태그·커밋을 검증하고 공개합니다. 기존 릴리스 파일은 덮어쓰지 않습니다. 실패한 초안은 동일 커밋과 기존 파일이 모두 일치할 때 누락 파일만 추가하고 출처를 재검증해 재개합니다. 변경된 태그나 일치하지 않는 초안은 거절합니다. 일반 CI와 PR은 읽기 전용 권한이며 태그 릴리스 작업만 배포·출처 증명 권한을 사용합니다.
 
-로컬 패키징 검사는 `python3 -m unittest discover -s tools -p 'test_*.py' -v`로 실행합니다. `python3 tools/release.py --tag 0.9.0 --output /tmp/confluence-folder-sync-0.9.0`로 새 패키지를 만듭니다. 같은 릴리스에서 배포 파일을 내려받고 체크섬을 확인한 뒤 `gh attestation verify main.js --repo hyun-seung/confluence-folder-sync --signer-workflow hyun-seung/confluence-folder-sync/.github/workflows/release.yml --source-ref refs/tags/0.9.0`로 출처를 확인합니다. 다른 파일도 각각 검사하며 정확한 커밋까지 고정하려면 `--source-digest <태그의 전체 커밋>`을 추가합니다. [GitHub 출처 증명 안내](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations)를 참고하세요.
+로컬 패키징 검사는 `python3 -m unittest discover -s tools -p 'test_*.py' -v`로 실행합니다. `python3 tools/release.py --tag 0.9.1 --output /tmp/confluence-folder-sync-0.9.1`로 새 패키지를 만듭니다. 같은 릴리스에서 배포 파일을 내려받고 체크섬을 확인한 뒤 `gh attestation verify main.js --repo hyun-seung/confluence-folder-sync --signer-workflow hyun-seung/confluence-folder-sync/.github/workflows/release.yml --source-ref refs/tags/0.9.1`로 출처를 확인합니다. 다른 파일도 각각 검사하며 정확한 커밋까지 고정하려면 `--source-digest <태그의 전체 커밋>`을 추가합니다. [GitHub 출처 증명 안내](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations)를 참고하세요.
 
 공개 자료에는 합성 예시를 사용합니다. 개인 설정, 보관함 문서, 토큰, 동기화 상태와 사내 경로는 로컬에 유지하세요.
 

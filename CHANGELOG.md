@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.9.0
+## 0.9.1
+
+- Discover bundled dependency licenses by their actual filename casing on Linux. The 0.9.0 tag failed CI before publishing any release assets; runtime bytes are unchanged by this build fix.
 
 - Bundle pinned markdown-it and Mermaid libraries with complete third-party license notices and reproducible esbuild packaging. Standard plugin installation still needs only the three runtime assets.
 - Preserve aligned tables, nested/ordered lists, static tasks, styled/duplicate heading anchors and standard callouts. Improve reverse conversion; retain merged/nested tables as fenced storage HTML and avoid invented links for unresolved title-only page references.

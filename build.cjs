@@ -1,4 +1,4 @@
-const { readFileSync, writeFileSync, existsSync } = require("node:fs");
+const { readFileSync, writeFileSync, existsSync, readdirSync } = require("node:fs");
 const { join, dirname, relative } = require("node:path");
 const { buildSync } = require("esbuild");
 const root = __dirname;
@@ -16,7 +16,8 @@ for (const file of [...Object.keys(parser.metafile.inputs), ...Object.keys(frame
   if (directory === root || packages.has(directory)) continue;
   const pkg = JSON.parse(readFileSync(join(directory, "package.json"), "utf8"));
   const candidates = ["LICENSE", "LICENSE.md", "LICENSE.txt", "LICENSE-MIT.txt", "LICENSE-MIT", "license", "license.md", "LICENCE", "LICENCE.md"];
-  const license = candidates.find(name => existsSync(join(directory, name)));
+  const files = readdirSync(directory);
+  const license = candidates.map(candidate => files.find(name => name.toLowerCase() === candidate.toLowerCase())).find(Boolean);
   if (!license) throw new Error("Missing bundled license: " + relative(root, directory));
   packages.set(directory, `${pkg.name}@${pkg.version} (${pkg.license ?? "see license"})\n${readFileSync(join(directory, license), "utf8").trim()}`);
 }
