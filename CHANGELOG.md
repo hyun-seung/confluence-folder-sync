@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.1
+
+- Set the displayed plugin developer name to **hyunseung**. Runtime behavior and private synchronization data are unchanged.
+- 플러그인에 표시되는 개발자명을 **hyunseung**으로 변경했습니다.
+
 ## 0.10.0
 
 - Add up to 32 named connections with local create, rename, switch and inactive removal. Preserve legacy settings and mapping/history/secret data; keep language global and disable background automation after connection management.
