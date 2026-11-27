@@ -86,12 +86,13 @@ async function publicationReview(app, client, profile, tree, catalog) {
     return row;
   });
   for (const row of rows) row.fingerprint = await digest(JSON.stringify(row));
-  return { target: publicationTarget(config), rows, source: config.source,
+  return { target: publicationTarget(config), connectionContext: config.connectionContext ?? null, rows, source: config.source,
     destination: new URL(config.origin).hostname + " / " + config.folderId };
 }
 
 function checkedSelection(review, current, paths) {
   if (review.target !== current.target) throw new Error("The publication destination changed. Refresh the review.");
+  if ((review.connectionContext ?? null) !== (current.connectionContext ?? null)) throw new SyncError(CONNECTION_STALE);
   const selected = new Set(paths);
   if (!selected.size) throw new Error("Select at least one eligible note.");
   const ready = new Map(current.rows.map(row => [row.path, row]));
@@ -169,9 +170,9 @@ async function publishReviewedSelection(app, client, profile, save, review, path
   });
 }
 
-class PublicationModal extends Modal {
+class PublicationModal extends ConnectionScopedModal {
   constructor(plugin, review) {
-    super(plugin.app);
+    super(plugin);
     this.plugin = plugin;
     this.review = review;
     this.selection = new Set();
@@ -248,6 +249,7 @@ class PublicationModal extends Modal {
     this.busy = true;
     this.render();
     try {
+      this.checkConnection();
       this.review = await this.plugin.preparePublication();
       this.selection.clear();
       this.status = "";
@@ -266,12 +268,15 @@ class PublicationModal extends Modal {
     const paths = Array.from(this.selection);
     this.render();
     try {
+      this.checkConnection();
       if (!await this.plugin.confirm(this.t("Publish selected"),
         this.t("Publish {count} selected notes to {destination}?", { count: paths.length, destination: this.review.destination }),
         this.t("Publish")) || !this.opened) return;
+      this.checkConnection();
       const updated = await this.plugin.operation("Publish selected", ({ client, profile, save }) =>
         publishSelection(this.app, client, profile, save, this.review, paths, {
           check: () => {
+            this.checkConnection();
             if (this.cancelled || this.plugin.unloaded) {
               const error = new Error("The operation was cancelled. Completed changes are preserved.");
               error.name = "AbortError";

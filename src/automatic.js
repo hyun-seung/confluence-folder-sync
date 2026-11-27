@@ -40,6 +40,7 @@ class AutomaticSync {
 
   async run() {
     const plugin = this.plugin;
+    const context = connectionContext(plugin);
     if (this.disposed || !plugin.data.settings.autoCheck) return;
     if (this.busy || plugin.running || Date.now() - (this.lastAttempt ?? 0) < 60_000) {
       this.schedule(60_000);
@@ -86,6 +87,7 @@ class AutomaticSync {
         }
         return { review, remoteChanges: remoteChanges.size, published };
       });
+      if (context !== connectionContext(plugin) || plugin.unloaded) return;
       const counts = Object.fromEntries(["New", "Changed", "Conflict"].map(status =>
         [status, result.review.rows.filter(row => row.status === status).length]));
       const message = plugin.t("Automatic review: {new} new, {changed} changed, {conflicts} conflicts, {remote} remote changes, {published} published.",
@@ -96,6 +98,7 @@ class AutomaticSync {
       }
       this.lastMessage = message;
     } catch (error) {
+      if (context !== connectionContext(plugin) || plugin.unloaded) return;
       const message = localizedError(error, plugin.language);
       plugin.automaticStatus = message;
       if (message !== this.lastMessage) new Notice(message, 12000);

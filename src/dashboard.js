@@ -1,10 +1,11 @@
-class SyncDashboard extends Modal {
+class SyncDashboard extends ConnectionScopedModal {
   constructor(plugin) {
-    super(plugin.app);
+    super(plugin);
     this.plugin = plugin;
     this.t = (message, values) => plugin.t(message, values);
     this.pages = [];
     this.versions = [];
+    this.connectionLabel = activeConnectionName(plugin);
     this.status = this.t("Load pages to view their Confluence versions.");
   }
 
@@ -23,12 +24,21 @@ class SyncDashboard extends Modal {
     const { contentEl, t } = this;
     contentEl.empty();
     contentEl.createEl("h2", { text: "Confluence Folder Sync" });
+    contentEl.createEl("p", { text: t("Active connection: {name}", { name: this.connectionLabel }) });
+    const action = callback => () => {
+      try { this.checkConnection(); return callback(); }
+      catch (error) { this.status = localizedError(error, this.plugin.language); if (this.opened) this.render(); }
+    };
+    new Setting(contentEl).setName(t("Saved connections and templates"))
+      .addButton(button => button.setButtonText(t("Manage saved connections")).onClick(action(() => {
+        this.close(); new ConnectionsModal(this.plugin).open();
+      })));
     new Setting(contentEl).setName(t("Connection setup and diagnostics"))
-      .addButton(button => button.setButtonText(t("Open setup wizard")).onClick(() => { this.close(); new SetupModal(this.plugin).open(); }));
+      .addButton(button => button.setButtonText(t("Open setup wizard")).onClick(action(() => { this.close(); new SetupModal(this.plugin).open(); })));
     contentEl.createEl("p", { text: this.status, attr: { role: "status", "aria-live": "polite" } });
     if (this.plugin.automaticStatus) contentEl.createEl("p", { text: this.plugin.automaticStatus });
     const button = (label, callback, disabled = false) => component =>
-      component.setButtonText(t(label)).setDisabled(this.busy || disabled).onClick(callback);
+      component.setButtonText(t(label)).setDisabled(this.busy || disabled).onClick(action(callback));
     const command = action => () => {
       this.close();
       void this.plugin.run(action);
@@ -152,6 +162,7 @@ class SyncDashboard extends Modal {
     this.status = this.t(message);
     this.render();
     try {
+      this.checkConnection();
       await this.plugin.operation(message, task);
     } catch (error) {
       this.status = localizedError(error, this.plugin.language);

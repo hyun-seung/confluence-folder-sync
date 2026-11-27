@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.0
+
+- Add up to 32 named connections with local create, rename, switch and inactive removal. Preserve legacy settings and mapping/history/secret data; keep language global and disable background automation after connection management.
+- Add Confluence read-only mode enforced at publication and transport boundaries. Publisher mode still requires explicit publish opt-in. Bind settings callbacks, confirmations, modals and request guards to the active connection and revision, including lock-acquisition races.
+- Add local, allowlisted setup-template preview/download/import with an 8 KiB UTF-8 limit. Default templates omit addresses, accounts, secrets, local paths and synchronization data; target site/space/folder IDs require explicit opt-in and are canonicalized. Imports create a new offline connection with account and paths to configure locally.
+- Reject import-folder overlap with any saved source after path normalization, including backup restoration. Preserve the owning connection on restoration backups and keep prior settings consistent after failed saves.
+- Extend Node checks to 163 and bilingual browser/native fixtures for connection CRUD, template privacy, old buttons/consent, rollback and preserved notes/secrets. Templates and connection management do not publish test documents.
+- 여러 연결 설정과 안전한 템플릿 공유 UI를 추가했습니다. 기존 연결을 보존하고 읽기 전용·프로필 전환·이전 화면의 승인·경로 겹침·저장 실패 경계를 합성 시험으로 검증합니다.
+
 ## 0.9.2
 
 - Replace the full renderer with the official same-version Mermaid Tiny distribution, retaining offline sandbox rendering, source code and vendor notices. Keep the runtime below a 5,000,000-byte build budget to resolve the official Obsidian Sync Standard size warning.

@@ -78,3 +78,9 @@
 .cfs-setup .setting-item-name, .cfs-setup .setting-item-description, .cfs-setup p { overflow-wrap: anywhere; }
 .cfs-setup input[type=text] { max-width: 100%; }
 .cfs-setup-report { max-height: 26vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+
+.cfs-connections .setting-item-control { flex-wrap: wrap; }
+.cfs-connections .setting-item-name, .cfs-connections p { overflow-wrap: anywhere; }
+.cfs-connections select { max-width: min(420px, 65vw); }
+.cfs-connections textarea { box-sizing: border-box; max-width: 100%; }
+.cfs-template-preview { max-height: 26vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }

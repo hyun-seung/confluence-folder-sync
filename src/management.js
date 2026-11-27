@@ -273,9 +273,9 @@ async function applyMappingChange(app, client, data, save, review, check = () =>
   return review.changes.length;
 }
 
-class MappingModal extends Modal {
+class MappingModal extends ConnectionScopedModal {
   constructor(plugin) {
-    super(plugin.app);
+    super(plugin);
     this.plugin = plugin;
     this.t = (message, values) => plugin.t(message, values);
     this.action = "reconnect";
@@ -344,7 +344,7 @@ class MappingModal extends Modal {
   async perform(task) {
     if (this.busy) return;
     this.busy = true; this.render();
-    try { await task(); } catch (error) { this.review = null; this.status = localizedError(error, this.plugin.language); }
+    try { this.checkConnection(); await task(); } catch (error) { this.review = null; this.status = localizedError(error, this.plugin.language); }
     finally { this.busy = false; if (this.opened) this.render(); }
   }
 
@@ -380,6 +380,7 @@ class MappingModal extends Modal {
       if (!review || !await this.plugin.confirm(this.t("Apply mapping change"),
         this.t("Apply {count} reviewed link changes? Documents stay unchanged; automatic publication will be disabled.",
           { count: review.changes.length }), this.t("Apply mapping change")) || !this.opened) return;
+      this.checkConnection();
       await this.plugin.operation("Manage connections", ({ client, config, save }) =>
         applyMappingChange(this.app, client, this.plugin.data, save, review, () => {
           if (!this.opened || this.plugin.unloaded || publicationTarget(validatedConfig(this.plugin.data.settings)) !== publicationTarget(config)) {

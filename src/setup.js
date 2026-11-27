@@ -163,6 +163,10 @@ async function commitSetup(plugin, draft, verified, baseline, check = async () =
       if (plugin.app.secretStorage.getSecret(draft.secretId) !== token) throw new SetupIssue("STALE");
     } catch (error) {
       plugin.data.settings = previous;
+      if (plugin.data.connections) {
+        plugin.data.settings.autoCheck = plugin.data.settings.autoPublish = false;
+        plugin.automatic?.configure();
+      }
       try { await plugin.persist(); } catch { throw new SetupIssue("SAVE_UNCERTAIN"); }
       if (error instanceof SetupIssue || error?.name === "AbortError") throw error;
       throw new SetupIssue("SAVE");
@@ -171,9 +175,9 @@ async function commitSetup(plugin, draft, verified, baseline, check = async () =
   } finally { plugin.setupSaving = false; }
 }
 
-class SetupModal extends Modal {
+class SetupModal extends ConnectionScopedModal {
   constructor(plugin, onSaved = () => {}) {
-    super(plugin.app);
+    super(plugin);
     this.plugin = plugin;
     this.t = (message, values) => plugin.t(message, values);
     this.baseline = JSON.stringify(plugin.data.settings);
@@ -195,6 +199,7 @@ class SetupModal extends Modal {
   }
 
   guard(fingerprint, settings = this.baseline) {
+    this.checkConnection();
     if (!this.opened || this.plugin.unloaded) { const error = new Error(); error.name = "AbortError"; throw error; }
     if (setupFingerprint(this.draft) !== fingerprint) throw new SetupIssue("STALE");
     if (JSON.stringify(this.plugin.data.settings) !== settings) throw new SetupIssue("SETTINGS_CHANGED");
@@ -206,6 +211,7 @@ class SetupModal extends Modal {
     this.reportContainer = null;
     this.issueContainer = null;
     contentEl.createEl("h2", { text: t("Connection setup and diagnostics") });
+    contentEl.createEl("p", { text: t("Active connection: {name}", { name: activeConnectionName(plugin) }) });
     if (this.saved) {
       contentEl.createEl("p", { text: t("Connection saved. Publishing and automatic sync are off.") });
       new Setting(contentEl).addButton(button => button.setButtonText(t("Close")).onClick(() => this.close()));
@@ -284,6 +290,7 @@ class SetupModal extends Modal {
     this.render();
     const fingerprint = setupFingerprint(this.draft);
     try {
+      this.checkConnection();
       const result = await this.plugin.testSetup(this.draft, () => this.guard(fingerprint));
       this.guard(fingerprint);
       this.verified = result;
@@ -302,6 +309,7 @@ class SetupModal extends Modal {
     this.render();
     const fingerprint = setupFingerprint(this.draft);
     try {
+      this.checkConnection();
       await this.plugin.saveSetup(this.draft, this.verified, this.baseline, expected => this.guard(fingerprint, expected));
       this.saved = true;
       this.onSaved();

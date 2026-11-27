@@ -1,4 +1,4 @@
-const { readFileSync } = require("node:fs");
+const { readFileSync, mkdirSync } = require("node:fs");
 const { join } = require("node:path");
 const { findBrowser } = require("./browser.cjs");
 const root = join(__dirname, "..");
@@ -22,10 +22,11 @@ const puppeteer = require("puppeteer-core");
     await page.addStyleTag({ content: readFileSync(join(root, "styles.css"), "utf8") });
     const bundle = readFileSync(join(root, "main.js"), "utf8");
     const fixtures = readFileSync(join(__dirname, "fixtures.cjs"), "utf8");
+    const connectionsScenario = readFileSync(join(__dirname, "connections-scenario.cjs"), "utf8");
     for (const width of [1280, 390]) {
     await page.setViewport({ width, height: 900 });
     for (const language of ["en", "ko"]) {
-    const result = await page.evaluate(async ({ source, language, fixtures }) => {
+    const result = await page.evaluate(async ({ source, language, fixtures, connectionsScenario }) => {
       function make(tag, parent, options = {}) {
         const node = document.createElement(tag);
         if (options.text !== undefined) node.textContent = options.text;
@@ -107,7 +108,7 @@ const puppeteer = require("puppeteer-core");
         onChange(callback) { this.selectEl.addEventListener("change", () => callback(this.selectEl.value)); return this; }
       }
       const mockObsidian = { Plugin: class {}, PluginSettingTab: class {}, Modal, Setting, SecretComponent, Notice: class {} };
-      const lib = new Function("require", "module", source + "\nreturn { SetupModal, verifySetup, commitSetup, setupDiagnostics, ApiError, SyncDashboard, incoming, digest, translate, PublicationModal, ConflictModal, HistoryModal, prepareConflict, validatedConfig, ConfluenceCloud, Publisher, preparedNotes, publicationReview, publishSelection, MappingModal, publicationTarget };")(
+      const lib = new Function("require", "module", source + "\nreturn { DEFAULT_SETTINGS, ConnectionsModal, SyncSettings, loadConnections, connectionContext, changeConnection, ConfluenceFolderSync, SetupModal, verifySetup, commitSetup, setupDiagnostics, ApiError, SyncDashboard, incoming, digest, translate, PublicationModal, ConflictModal, HistoryModal, prepareConflict, validatedConfig, ConfluenceCloud, Publisher, preparedNotes, publicationReview, publishSelection, MappingModal, publicationTarget };")(
         name => {
           if (name !== "obsidian") throw new Error("Unexpected runtime dependency: " + name);
           return mockObsidian;
@@ -457,6 +458,71 @@ const puppeteer = require("puppeteer-core");
           !failedSetup.contentEl.textContent.includes(setupPlugin.t("Read access was denied."))) throw new Error("Localized setup permission diagnostic failed");
       await setupClick(failedSetup, "Cancel");
 
+      const connectionFixture = loadFixtures().selectionFixture(lib);
+      connectionFixture.app.secretStorage = { listSecrets: () => ["fixture"], getSecret: () => { throw new Error("Template UI must not read credentials"); } };
+      const connectionPlugin = { app: connectionFixture.app, language,
+        t: (message, values) => lib.translate(language, message, values),
+        data: { ...lib.loadConnections({ settings: { ...connectionFixture.config, language, autoCheck: false, autoPublish: false } }),
+          profiles: { preserved: connectionFixture.profile }, history: [], backups: [] },
+        saving: Promise.resolve(), connectionEpoch: 1, applyRenames: async () => {}, saveData: async () => {},
+        automatic: { clearTimers() {}, configure() {} }, confirm: async () => true };
+      connectionPlugin.persist = () => lib.ConfluenceFolderSync.prototype.persist.call(connectionPlugin);
+      connectionPlugin.exclusive = task => lib.ConfluenceFolderSync.prototype.exclusive.call(connectionPlugin, task);
+      connectionPlugin.configure = (...args) => lib.ConfluenceFolderSync.prototype.configure.call(connectionPlugin, ...args);
+      const connectionModule = { exports: {} };
+      new Function("module", connectionsScenario)(connectionModule);
+      const originalConnectionDocs = JSON.stringify([...connectionFixture.bodies]);
+      const connectionsVerified = await connectionModule.exports(lib, connectionPlugin, { download: true,
+        onPreview: element => {
+          const copy = element.cloneNode(true);
+          const originals = element.querySelectorAll("input,textarea,select");
+          for (const [index, input] of [...copy.querySelectorAll("input,textarea,select")].entries()) {
+            const original = originals[index];
+            if (input.localName === "textarea") input.textContent = original.value;
+            else if (input.localName === "select") {
+              for (const option of input.options) option.toggleAttribute("selected", option.value === original.value);
+            } else { input.setAttribute("value", original.value); input.toggleAttribute("checked", original.checked); }
+          }
+          window.__cfsConnectionPreview = copy.outerHTML;
+        } });
+      if (!Object.values(connectionsVerified).every(Boolean) || JSON.stringify([...connectionFixture.bodies]) !== originalConnectionDocs) throw new Error("Connection UI changed notes");
+
+      // A's pending consent must not authorize B after the Settings tab re-renders.
+      const originalConnectionId = connectionPlugin.data.activeConnectionId;
+      connectionPlugin.data.settings.allowPublish = true;
+      connectionPlugin.data.settings.autoCheck = true;
+      await connectionPlugin.persist();
+      const settingsPanel = new lib.SyncSettings(connectionPlugin);
+      settingsPanel.containerEl = make("div", document.body);
+      settingsPanel.display();
+      connectionPlugin.running = true;
+      const originalEmail = connectionPlugin.data.settings.email;
+      const emailRow = () => [...settingsPanel.containerEl.querySelectorAll('.setting-item')].find(row => row.textContent.startsWith(connectionPlugin.t("Atlassian email")));
+      const blockedEmail = emailRow().querySelector('input');
+      blockedEmail.value = "blocked@example.com";
+      blockedEmail.dispatchEvent(new Event('input'));
+      await new Promise(resolve => setTimeout(resolve, 20));
+      if (connectionPlugin.data.settings.email !== originalEmail || emailRow().querySelector('input').value !== originalEmail) throw new Error("Rejected settings edit stayed visible as a different account");
+      connectionPlugin.running = false;
+      let approve;
+      connectionPlugin.confirm = () => new Promise(resolve => { approve = resolve; });
+      const automaticRow = [...settingsPanel.containerEl.querySelectorAll('.setting-item')].find(row => row.textContent.startsWith(connectionPlugin.t("Automatic publication")));
+      const automaticToggle = automaticRow.querySelector('input[type=checkbox]');
+      automaticToggle.checked = true;
+      automaticToggle.dispatchEvent(new Event('change'));
+      if (!approve) throw new Error("Settings consent did not open");
+      await lib.changeConnection(connectionPlugin, { kind: "create", name: "Approval switch" }, lib.connectionContext(connectionPlugin));
+      const switchedId = connectionPlugin.data.activeConnectionId;
+      await connectionPlugin.configure("connectionMode", "publisher");
+      await connectionPlugin.configure("allowPublish", true);
+      await connectionPlugin.configure("autoCheck", true);
+      approve(true);
+      await new Promise(resolve => setTimeout(resolve, 20));
+      if (connectionPlugin.data.settings.autoPublish) throw new Error("A's stale consent enabled B's automatic publication");
+      await lib.changeConnection(connectionPlugin, { kind: "switch", id: originalConnectionId }, lib.connectionContext(connectionPlugin));
+      await lib.changeConnection(connectionPlugin, { kind: "remove", id: switchedId }, lib.connectionContext(connectionPlugin));
+      settingsPanel.containerEl.remove();
+
       return {
         newFeaturesVerified: true,
         diffVerified,
@@ -465,9 +531,15 @@ const puppeteer = require("puppeteer-core");
         baselinePreserved: profile.pages["file:Docs/One.md"].version === 2,
         savedSnapshots: opened.length,
       };
-    }, { source: bundle, language, fixtures });
+    }, { source: bundle, language, fixtures, connectionsScenario });
     assert.deepEqual(result, { newFeaturesVerified: true, diffVerified: true, originalProtected: true, baselinePreserved: true, savedSnapshots: 2 });
-    console.log(language + " " + width + "px Chromium fixture passed: setup draft/check/save/cancel and redacted diagnostics, mapping management, selective publication, conflicts, restoration, versions and attachments.");
+    if (process.env.CFS_UI_CAPTURE) {
+      mkdirSync(process.env.CFS_UI_CAPTURE, { recursive: true });
+      await page.evaluate(() => { document.body.innerHTML = window.__cfsConnectionPreview; });
+      await page.screenshot({ path: join(process.env.CFS_UI_CAPTURE, language + "-" + width + ".png"), fullPage: true });
+      await page.evaluate(() => document.body.replaceChildren());
+    }
+    console.log(language + " " + width + "px Chromium fixture passed: saved connections/templates, stale consent, setup diagnostics, mapping management, selective publication, conflicts, restoration, versions and attachments.");
     }
     }
     assert.deepEqual(errors, [], "Browser page errors");

@@ -1,11 +1,11 @@
 {
   "name": "confluence-folder-sync",
-  "version": "0.9.2",
+  "version": "0.10.0",
   "private": true,
   "license": "MIT",
   "scripts": {
     "build": "node build.cjs",
-    "test": "node build.cjs && node --test sync.test.cjs testing/native-runner.test.cjs testing/performance.test.cjs testing/setup.test.cjs testing/markdown.test.cjs",
+    "test": "node build.cjs && node --test sync.test.cjs testing/native-runner.test.cjs testing/performance.test.cjs testing/setup.test.cjs testing/markdown.test.cjs testing/connections.test.cjs",
     "benchmark": "node build.cjs && node testing/benchmark.cjs"
   },
   "devDependencies": {

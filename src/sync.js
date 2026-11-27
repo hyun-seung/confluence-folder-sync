@@ -249,6 +249,7 @@ class Publisher {
   }
 
   async plan(tree, catalog) {
+    if (this.client.config.connectionMode === "read-only") throw new SyncError("This connection is read-only in Confluence.");
     for (const note of tree.notes) if (note.problem) throw note.problem;
     const folders = new Map([[this.client.config.source, this.client.config.folderId]]);
     for (const path of tree.folders) {
@@ -304,6 +305,7 @@ class Publisher {
   }
 
   async publish(tree, catalog, control = {}) {
+    if (this.client.config.connectionMode === "read-only") throw new SyncError("This connection is read-only in Confluence.");
     for (const note of tree.notes) if (note.problem) throw note.problem;
     const folders = new Map([[this.client.config.source, this.client.config.folderId]]);
     const ids = new Map(Object.entries(this.profile.pages)

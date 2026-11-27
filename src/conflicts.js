@@ -76,9 +76,9 @@ async function resolveConflict(app, client, profile, save, review, text, recordB
   return { backup, path, afterHash: await digest(text) };
 }
 
-class ConflictModal extends Modal {
+class ConflictModal extends ConnectionScopedModal {
   constructor(plugin, review) {
-    super(plugin.app);
+    super(plugin);
     this.plugin = plugin;
     this.review = review;
     this.text = review.original;
@@ -129,9 +129,11 @@ class ConflictModal extends Modal {
     this.busy = true;
     this.render();
     try {
+      this.checkConnection();
       if (!await this.plugin.confirm(this.t("Save resolution locally"),
         this.t("Back up {path}, save the reviewed text, and accept Confluence v{version} as the new baseline?",
           { path: this.review.path, version: this.review.version }), this.t("Apply changes")) || !this.opened) return;
+      this.checkConnection();
       const result = await this.plugin.operation("Resolve text conflict", ({ client, profile, save }) =>
         resolveConflict(this.app, client, profile, save, this.review, this.text, receipt => this.plugin.recordBackup(receipt)));
       this.status = this.t("Resolution saved. Review publication to upload your chosen text.");

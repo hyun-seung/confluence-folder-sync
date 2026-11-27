@@ -1,9 +1,9 @@
 // Executed inside the real Electron renderer, using real Obsidian APIs and a fake remote.
-module.exports = async function nativeScenario({ expectedVault, source, markdownScenario }) {
+module.exports = async function nativeScenario({ expectedVault, source, markdownScenario, connectionsScenario }) {
   const check = (value, message) => { if (!value) throw new Error(message); };
   check(app.vault.adapter.getBasePath().replace(/\\/g, "/") === expectedVault.replace(/\\/g, "/"), "Fixture vault guard failed");
   const api = window.__cfsTestApi;
-  const lib = new Function("require", "module", source + "\nreturn { xml, LocalMermaid, MERMAID_ERROR, markdownLines, toStorage, fromStorage, SetupModal, verifySetup, setupDiagnostics, SyncDashboard, HistoryModal, incoming, digest, prepareLocalReview, applyLocalReview, publicationTarget };")(
+  const lib = new Function("require", "module", source + "\nreturn { DEFAULT_SETTINGS, setupTemplate, ConnectionsModal, xml, LocalMermaid, MERMAID_ERROR, markdownLines, toStorage, fromStorage, SetupModal, verifySetup, setupDiagnostics, SyncDashboard, HistoryModal, incoming, digest, prepareLocalReview, applyLocalReview, publicationTarget };")(
     name => { if (name !== "obsidian") throw new Error("Unexpected dependency"); return api; }, { exports: {} });
   let plugin = app.plugins.plugins["confluence-folder-sync"];
   check(plugin instanceof api.Plugin, "Production plugin did not load as a real Obsidian Plugin");
@@ -18,6 +18,8 @@ module.exports = async function nativeScenario({ expectedVault, source, markdown
   const results = [];
   const conversionFixture = { exports: {} };
   new Function("module", markdownScenario)(conversionFixture);
+  const connectionsFixture = { exports: {} };
+  new Function("module", connectionsScenario)(connectionsFixture);
   results.push({ conversion: await conversionFixture.exports(lib) });
   for (const language of ["en", "ko"]) {
     plugin.data.settings = { ...plugin.data.settings, language, source: "Docs", inbox: "Incoming-" + language,
@@ -100,7 +102,9 @@ module.exports = async function nativeScenario({ expectedVault, source, markdown
     check(imported && await app.vault.read(app.vault.getFileByPath(imported.path)), "Native page import failed");
     const attachment = app.vault.getFiles().find(file => file.path.startsWith(config.inbox + "/") && file.path.endsWith("/Attachments/501-v1-doc.png"));
     check(attachment && new Uint8Array(await app.vault.readBinary(attachment))[1] === 37, "Native binary attachment bytes mismatch");
-    results.push({ language, setupWizard: true, redactedDiagnostics: true, ui: true, selectedApplication: true, backupRestoration: true, binaryImport: true });
+    check(Object.values(await connectionsFixture.exports(lib, plugin)).every(Boolean), "Native connection/template scenario failed");
+    check(app.secretStorage.getSecret(secretId) === secretValue, "Connection management changed the stored secret");
+    results.push({ language, connectionsAndTemplates: true, setupWizard: true, redactedDiagnostics: true, ui: true, selectedApplication: true, backupRestoration: true, binaryImport: true });
   }
   const profile = Object.values(plugin.data.profiles).find(value => value.pages["file:Docs/One.md"]);
   await app.vault.rename(sourceFile, "Docs/Renamed.md");

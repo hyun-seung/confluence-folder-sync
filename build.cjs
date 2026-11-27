@@ -33,7 +33,7 @@ for (const file of [...Object.keys(parser.metafile.inputs), ...Object.keys(inven
 packages.set("tiny", `@mermaid-js/tiny@${tinyPackage.version} (MIT; same upstream monorepo)\n${readFileSync(join(root, "node_modules/mermaid/LICENSE"), "utf8").trim()}`);
 const notices = "Third-party software notices for main.js and the matching Mermaid upstream dependency inventory. Some optional upstream features are not shipped by Tiny. Inline prebundled notices are also preserved.\n\n" + [...packages.values()].sort().join("\n\n--------------------\n\n") + "\n";
 writeFileSync(join(root, "THIRD_PARTY_NOTICES.txt"), notices);
-const modules = ["i18n.js", "requests.js", "confluence.js", "reads.js", "mermaid.js", "markdown.js", "sync.js", "review.js", "publication.js", "conflicts.js", "renames.js", "history.js", "automatic.js", "management.js", "setup.js", "dashboard.js", "plugin.js"];
+const modules = ["i18n.js", "requests.js", "confluence.js", "connections.js", "reads.js", "mermaid.js", "markdown.js", "sync.js", "review.js", "publication.js", "conflicts.js", "renames.js", "history.js", "automatic.js", "management.js", "setup.js", "connection-ui.js", "dashboard.js", "plugin.js"];
 const source = modules.map(name => readFileSync(join(root, "src", name), "utf8").trimEnd());
 const output = '\"use strict\";\n/*\n' + notices.replace(/\*\//g, "* /") +
   "*/\n" + parser.outputFiles[0].text + "\nconst MERMAID_FRAME_SOURCE = " + JSON.stringify(tiny + "\n" + frame.outputFiles[0].text) +

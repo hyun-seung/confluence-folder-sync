@@ -7,7 +7,7 @@ async function saveNoteBackup(app, config, path, original, after, record = async
   await makeVaultFolders(app.vault, parentPath(backup), config.inbox);
   await app.vault.create(backup, original);
   const receipt = { id: crypto.randomUUID(), time: new Date().toISOString(), path, backup,
-    backupHash: await digest(original), afterHash: await digest(after), target: publicationTarget(config) };
+    backupHash: await digest(original), afterHash: await digest(after), target: publicationTarget(config), connectionId: config.connectionId ?? "default" };
   await record(receipt);
   return receipt;
 }
@@ -37,9 +37,9 @@ async function restoreNoteBackup(app, config, receipt, record) {
   return recovery;
 }
 
-class HistoryModal extends Modal {
+class HistoryModal extends ConnectionScopedModal {
   constructor(plugin) {
-    super(plugin.app);
+    super(plugin);
     this.plugin = plugin;
     this.t = (message, values) => plugin.t(message, values);
   }
@@ -55,14 +55,14 @@ class HistoryModal extends Modal {
     contentEl.createEl("h2", { text: t("Activity and backups") });
     if (this.status) contentEl.createEl("p", { text: this.status, attr: { role: "status" } });
     contentEl.createEl("h3", { text: t("Recent operations") });
-    for (const item of plugin.data.history.slice().reverse().slice(0, 30)) {
+    for (const item of plugin.data.history.filter(item => (item.connectionId ?? "default") === (plugin.data.activeConnectionId ?? "default")).slice().reverse().slice(0, 30)) {
       const result = item.status === "Running" && !plugin.running ? "Interrupted" : item.status;
       new Setting(contentEl).setName(t(item.action) + " · " + t(result))
         .setDesc(item.time + (item.error ? " · " + item.error : item.count !== undefined ? " · " + item.count : ""));
     }
     if (!plugin.data.history.length) contentEl.createEl("p", { text: t("No recorded operations yet.") });
     contentEl.createEl("h3", { text: t("Local note backups") });
-    for (const receipt of plugin.data.backups.slice().reverse().slice(0, 30)) {
+    for (const receipt of plugin.data.backups.filter(item => (item.connectionId ?? "default") === (plugin.data.activeConnectionId ?? "default")).slice().reverse().slice(0, 30)) {
       new Setting(contentEl).setName(receipt.path).setDesc(receipt.time)
         .addButton(button => button.setButtonText(t("Open backup")).onClick(async () => {
           const file = this.app.vault.getFileByPath(receipt.backup);
@@ -79,11 +79,15 @@ class HistoryModal extends Modal {
     this.busy = true;
     this.render();
     try {
+      this.checkConnection();
       if (!await this.plugin.confirm(this.t("Restore backup"),
         this.t("Restore {path}? The current note will be backed up first.", { path: receipt.path }),
         this.t("Restore backup"))) return;
+      this.checkConnection();
       await this.plugin.exclusive(() => this.plugin.recordOperation("Restore backup", () => {
         const config = validatedConfig(this.plugin.data.settings);
+        config.connectionId = this.plugin.data.activeConnectionId ?? "default";
+        checkConnectionScopes(this.plugin.data, config);
         guardMappedPath(this.plugin.data.profiles[publicationTarget(config)] ?? {}, receipt.path);
         return restoreNoteBackup(this.app, config, receipt, item => this.plugin.recordBackup(item));
       }));

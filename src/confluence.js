@@ -69,8 +69,11 @@ function atlassianAccount(emailInput, secretId) {
 }
 
 function validatedConfig(settings) {
+  if (settings.connectionMode !== undefined && !["publisher", "read-only"].includes(settings.connectionMode)) {
+    throw new SyncError("Choose a valid Confluence access mode.");
+  }
   return { ...settings, ...confluenceTarget(settings.folderUrl), ...configuredFolders(settings.source, settings.inbox),
-    ...atlassianAccount(settings.email, settings.secretId) };
+    ...atlassianAccount(settings.email, settings.secretId), allowPublish: settings.connectionMode !== "read-only" && settings.allowPublish === true };
 }
 
 async function digest(value) {
@@ -179,6 +182,7 @@ class ConfluenceCloud {
   }
 
   async call(method, path, options = {}) {
+    if (this.config.connectionMode === "read-only" && method !== "GET") throw new SyncError("This connection is read-only in Confluence.");
     if (!path.startsWith(API + "/") && !path.startsWith(REST + "/")) {
       throw new Error("Refusing a request outside the Confluence API.");
     }
