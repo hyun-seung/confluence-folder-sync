@@ -2,19 +2,19 @@
 
 English · [한국어](README.ko.md)
 
-These tests use synthetic notes, account identifiers and remote responses. Never point them at a personal vault or copy private plugin data into this directory. Test dependencies live here; the shipped plugin and root build have no npm dependencies.
+These tests use synthetic notes, account identifiers and remote responses. Never point them at a personal vault or copy private plugin data into this directory. Browser test tools live here. Root build dependencies are pinned separately; Markdown and Mermaid are bundled into the shipped runtime, with no runtime download.
 
 From the repository root, using Node.js 26:
 
 ```sh
-npm ci --ignore-scripts --offline --no-audit --no-fund
+npm ci --ignore-scripts --no-audit --no-fund
 npm test
 npm ci --ignore-scripts --prefix testing --no-audit --no-fund
 npm test --prefix testing
 python3 -m unittest discover -s tools -p 'test_*.py' -v
 ```
 
-The first `npm ci` is offline. Installing the separate testing dependencies needs npm registry access. Lifecycle scripts are disabled. Run `npm run build` before standalone UI/native tests when the source changes.
+Installing pinned root build and separate testing dependencies needs npm registry access. Lifecycle scripts are disabled. Run `npm run build` before standalone UI/native tests when the source changes.
 
 ## Browser fixtures
 
@@ -53,3 +53,5 @@ The packaging job also passed all 12 Python checks and package validation. Nativ
 Version 0.7.0 extends the suite to 78 Node checks, including bounded retry/cancellation and the 1,000-note read-call budget. See the [performance fixture guide](PERFORMANCE.md) for measurements and reproduction.
 
 Version 0.8.0 adds 96 Node checks and browser/native setup workflows in both languages. They cover draft cancellation, read-only checks, actual SecretComponent in Obsidian, privacy-safe report fields, explicit settings save, stale tokens/settings/folders, elapsed checks and rollback when a window closes during save. Native remote responses remain synthetic; no user clipboard is changed by native tests.
+
+Version 0.9.0 adds 119 Node checks and shared browser/native Markdown fidelity fixtures, offline Mermaid PNG rendering, repeat-render determinism, rejected active syntax, parent/Node isolation and image/source import. The browser also asserts zero external diagram requests. Generated uploads and lost upload/page responses use synthetic remotes. Synchronous layout interruption and cross-machine image identity are not claimed.

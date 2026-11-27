@@ -1,11 +1,16 @@
 {
   "name": "confluence-folder-sync",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "license": "MIT",
   "scripts": {
     "build": "node build.cjs",
-    "test": "node build.cjs && node --test sync.test.cjs testing/native-runner.test.cjs testing/performance.test.cjs testing/setup.test.cjs",
+    "test": "node build.cjs && node --test sync.test.cjs testing/native-runner.test.cjs testing/performance.test.cjs testing/setup.test.cjs testing/markdown.test.cjs",
     "benchmark": "node build.cjs && node testing/benchmark.cjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "markdown-it": "15.0.3",
+    "mermaid": "12.3.0"
   }
 }

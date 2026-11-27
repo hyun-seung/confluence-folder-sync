@@ -30,7 +30,7 @@ function vaultReference(reference, file, app, source) {
   }
   const target = decoded ? app.metadataCache.getFirstLinkpathDest(decoded, file.path) : file;
   if (!target?.extension || !visibleSourcePath(target.path, source)) return null;
-  return { file: target, anchor };
+  try { return { file: target, anchor: anchor ? decodeURIComponent(anchor) : anchor }; } catch { return null; }
 }
 
 // Walk only the selected branch; never enumerate the vault-wide file registry.
@@ -64,7 +64,16 @@ function unchangedSourcePaths(note, source) {
     Array.from(note.assets, ([path, asset]) => asset.file.path === path && visibleSourcePath(path, source)).every(Boolean);
 }
 
-async function preparedNotes(app, config) {
+async function publicationInputHash(sourceHash, assetHashes, diagrams) {
+  const inputs = [sourceHash, assetHashes];
+  if (diagrams?.size) inputs.push([MERMAID_RENDER_REVISION, Array.from(diagrams, ([index, asset]) => [index, asset.hash])]);
+  return digest(JSON.stringify(inputs));
+}
+
+async function preparedNotes(app, config, check) {
+  const guard = async () => { config.checkPreparation?.(); await check?.(); };
+  await guard();
+  const renderer = config.mermaidMode === "image" ? localMermaid(app) : null;
   const folder = app.vault.getFolderByPath(config.source);
   if (!folder) throw new Error("The selected source folder does not exist in this vault.");
   const notes = [];
@@ -73,6 +82,7 @@ async function preparedNotes(app, config) {
   const binaries = new Map();
   const files = sourceMarkdownFiles(folder, config.source);
   for (const file of files.sort((a, b) => a.path.localeCompare(b.path))) {
+    await guard();
     for (const path of ancestors(file.path, config.source)) folders.add(path);
     const path = file.path;
     if (!visibleSourcePath(path, config.source)) throw new Error("The source folder hierarchy changed. Reload the review.");
@@ -81,10 +91,24 @@ async function preparedNotes(app, config) {
     let problem = title.length > 255 ? new SyncError("A source title exceeds the Confluence maximum: {title}", { title: title.slice(0, 100) }) : null;
     let source;
     try { source = await app.vault.read(file); } catch (error) { problem = error; source = ""; }
+    await guard();
     if (file.path !== path) throw new Error("The source folder hierarchy changed. Reload the review.");
     const assets = new Map();
+    const diagrams = new Map();
     const references = [];
     const units = markdownLines(source, reference => references.push(reference));
+    if (config.mermaidMode === "image") {
+      for (const [index, token] of units.entries()) {
+        if (token.type !== "fence" || token.info.trim().split(/\s+/)[0].toLowerCase() !== "mermaid") continue;
+        await guard();
+        try {
+          const asset = await renderer.render(token.content.replace(/\n$/, ""));
+          await guard();
+          token.cfsDiagram = asset;
+          diagrams.set(index, asset);
+        } catch (error) { if (error.name === "AbortError") throw error; problem = error; }
+      }
+    }
     for (const reference of references) {
       const target = vaultReference(reference, file, app, config.source);
       if (!target || target.file.extension?.toLowerCase() === "md") continue;
@@ -114,10 +138,10 @@ async function preparedNotes(app, config) {
     const sourceHash = await digest(source);
     const assetHashes = Array.from(assets, ([path, asset]) => [path, asset.hash])
       .sort(([left], [right]) => left.localeCompare(right));
-    const inputHash = await digest(JSON.stringify([sourceHash, assetHashes]));
+    const inputHash = await publicationInputHash(sourceHash, assetHashes, diagrams);
     const dependencies = references.map(reference => vaultReference(reference, file, app, config.source))
       .filter(target => target?.file.extension?.toLowerCase() === "md").map(target => target.file.path);
-    notes.push({ file, path, title, original: source, units, assets, sourceHash, inputHash, dependencies, problem });
+    notes.push({ file, path, title, original: source, units, assets, diagrams, sourceHash, inputHash, dependencies, problem });
   }
   for (const note of notes) {
     if (!unchangedSourcePaths(note, config.source)) throw new Error("The source folder hierarchy changed. Reload the review.");
@@ -131,7 +155,7 @@ async function preparedNotes(app, config) {
 function resolvedStorage(note, app, client, ids) {
   return toStorage(note.units, reference => {
     const target = vaultReference(reference, note.file, app, client.config.source);
-    const label = textMarkup(reference.label);
+    const label = reference.labelHtml ?? textMarkup(reference.label);
     if (target) {
       const page = ids.get(target.file.path);
       if (page) {
@@ -310,8 +334,10 @@ class Publisher {
         recovery ? entry.pending.title ?? note.title : entry.renamedFrom ? entry.title : note.title, this.client.spaceId);
       if (validateVersion(page, entry)) {
         const recoveredInput = entry.pending.preserveMigrated ? entry.pending.inputHash : null;
+        entry.inputHash = entry.pending.inputHash;
+        entry.formatRevision = entry.pending.formatRevision ?? 0;
         const inventory = attachmentInventory(await this.client.attachments(entry.id));
-        const managed = new Set([...Array.from(note.assets.values(), asset => asset.name), ...Object.keys(entry.uploadIntents ?? {})]);
+        const managed = new Set([...publicationAssets(note).map(asset => asset.name), ...Object.keys(entry.uploadIntents ?? {})]);
         const merged = new Map((entry.remoteAttachments ?? []).map(asset => [asset.id, asset]));
         for (const asset of inventory) if (managed.has(asset.title)) merged.set(asset.id, asset);
         entry.remoteAttachments = entry.remoteAttachments ? Array.from(merged.values()) : inventory;
@@ -329,9 +355,9 @@ class Publisher {
         await this.save();
       }
       const relocation = page.title !== note.title || String(page.parentId) !== parent;
-      const preserveMigrated = entry.migratedInputHash === note.inputHash;
-      if (entry.migratedInputHash === note.inputHash && !relocation && !entry.pending && !entry.uploadIntents) continue;
-      const body = entry.migratedInputHash === note.inputHash ? await checkedBody(this.client, page) :
+      const preserveMigrated = preservePublishedBody(entry, note);
+      if (preservePublishedBody(entry, note) && !relocation && !entry.pending && !entry.uploadIntents) continue;
+      const body = preservePublishedBody(entry, note) ? await checkedBody(this.client, page) :
         resolvedStorage(note, this.app, this.client, ids);
       const bodyHash = await digest(body);
       if (bodyHash === entry.bodyHash && !relocation) {
@@ -356,7 +382,7 @@ class Publisher {
         }
         continue;
       }
-      const assets = Array.from(new Map(Array.from(note.assets.values(), asset => [asset.name, asset])).values());
+      const assets = Array.from(new Map(publicationAssets(note).map(asset => [asset.name, asset])).values());
       const remoteFiles = assets.length || entry.remoteAttachments ? await this.client.attachments(entry.id) : [];
       if (attachmentsConflict(entry, note, remoteFiles)) {
         throw new Error("Confluence attachments changed. Review the conflict before publishing.");
@@ -383,7 +409,7 @@ class Publisher {
       const message = "Confluence Folder Sync " + entry.ticket + " " + bodyHash.slice(0, 24);
       await control.check?.(note);
       entry.pending = { bodyHash, sourceHash: note.sourceHash, message, title: note.title, parent,
-        preserveMigrated, inputHash: note.inputHash };
+        preserveMigrated, inputHash: note.inputHash, formatRevision: preserveMigrated ? entry.formatRevision ?? 0 : MARKDOWN_FORMAT_REVISION };
       await this.save();
       await control.check?.(note);
       const result = await this.client.update(page, body, message, relocation ? { title: note.title, parent } : undefined);
@@ -404,6 +430,7 @@ class Publisher {
       }
       entry.version = result.version.number;
       entry.bodyHash = bodyHash;
+      if (!preserveMigrated) entry.formatRevision = MARKDOWN_FORMAT_REVISION;
       entry.sourceHash = note.sourceHash;
       delete entry.uploadIntents;
       entry.inputHash = note.inputHash;

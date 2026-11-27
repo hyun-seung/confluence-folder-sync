@@ -1,0 +1,19 @@
+{
+  "provenance": {
+    "tag": "0.8.0",
+    "commit": "3fbf1fc6a6891eaba5d781fa0faac59a2b5d6889"
+  },
+  "source": "# One\n\n![logo][asset]\n\n[asset]: picture.png",
+  "storage": "<h1><ac:structured-macro ac:name=\"anchor\"><ac:parameter ac:name=\"\">one</ac:parameter></ac:structured-macro>One</h1>\n<p>![logo][asset]</p>\n<p>[asset]: picture.png</p>",
+  "entry": {
+    "ticket": "7c07a19e-6d5a-42ac-99d2-cc64aa349b0a",
+    "id": "401",
+    "version": 2,
+    "title": "One",
+    "parent": "100",
+    "remoteAttachments": [],
+    "bodyHash": "3f1c9bddfb15d18559145ae5f58c85bc450101ded0d4bc6cad42b8cd786355eb",
+    "sourceHash": "3d490ffb8c59f61d78a84e801ffb903a2d24fe96c040714bb13d42b754408dc0",
+    "inputHash": "927094be8edcd673456c620f15b4ecd14742ede302da8946fac00a2f804360c3"
+  }
+}

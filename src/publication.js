@@ -4,7 +4,7 @@ function publicationTarget(config) {
 
 function attachmentsConflict(entry, note, files) {
   if (!entry.remoteAttachments) return false;
-  const desired = new Map(Array.from(note.assets.values(), asset => [asset.name, asset]));
+  const desired = new Map(publicationAssets(note).map(asset => [asset.name, asset]));
   const raw = new Map(files.map(file => [file.title, file]));
   return attachmentDiff(entry.remoteAttachments, attachmentInventory(files)).some(change => {
     const asset = desired.get(change.title);
@@ -70,9 +70,13 @@ async function publicationReview(app, client, profile, tree, catalog) {
         }
       }
       row.outputHash = await digest(resolvedStorage(note, app, client, ids));
+      row.formatReviewRequired = Boolean(page && entry.bodyHash && (entry.formatRevision ?? 0) < MARKDOWN_FORMAT_REVISION &&
+        entry.sourceHash === note.sourceHash && !preservePublishedBody(entry, note));
+      if (row.formatReviewRequired) row.reason = translate(config.language,
+        "Review this attachment change manually after the Markdown upgrade.");
       row.status = !page ? "New" : entry.creating || entry.pending ||
         page.title !== note.title || String(page.parentId) !== parent?.id ? "Changed" :
-        entry.migratedInputHash === note.inputHash ||
+        preservePublishedBody(entry, note) ||
         row.outputHash === entry.bodyHash ? "Unchanged" : "Changed";
     } catch (error) {
       if (error.name === "AbortError") throw error;
@@ -121,6 +125,9 @@ async function checkPublicationInput(app, note, source) {
     const hash = await digest(data);
     if (!unchangedSourcePaths(note, source) || hash !== asset.hash) changed();
   }
+  for (const asset of note.diagrams?.values() ?? []) {
+    if (await digest(asset.data) !== asset.hash) changed();
+  }
   const finalHash = await digest(await app.vault.read(note.file));
   if (!unchangedSourcePaths(note, source) || finalHash !== note.sourceHash ||
       !editorMatches(app, note.path, note.original) || inputs.some((file, index) => stamp(file) !== revisions[index])) changed();
@@ -139,7 +146,7 @@ async function publishSelection(app, client, profile, save, review, paths, contr
 
 async function publishReviewedSelection(app, client, profile, save, review, paths, control) {
   if (!client.config.allowPublish) throw new Error("Enable publishing in the plugin settings first.");
-  const tree = await preparedNotes(app, client.config);
+  const tree = await preparedNotes(app, client.config, () => client.check?.());
   tree.source = client.config.source;
   const catalog = await client.catalog();
   const current = await publicationReview(app, client, profile, tree, catalog);

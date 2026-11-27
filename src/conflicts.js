@@ -59,7 +59,7 @@ async function resolveConflict(app, client, profile, save, review, text, recordB
   delete entry.inputHash;
   try {
     if (text === review.remote) {
-      const tree = await preparedNotes(app, client.config);
+      const tree = await preparedNotes(app, client.config, () => client.check?.());
       const note = tree.notes.find(item => item.path === path);
       if (!note || note.sourceHash !== await digest(text) || file.path !== path || !editorMatches(app, path, text)) {
         throw new Error("The local note changed after review. Review it again.");

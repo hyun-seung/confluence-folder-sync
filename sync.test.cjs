@@ -56,8 +56,8 @@ test("storage conversion preserves tables, captured links and fenced code and es
   const units = lib.markdownLines(markup, item => references.push(item.target));
   assert.deepEqual(references, ["Second", "asset.png"]);
   const result = lib.toStorage(units, item => "<a>" + item.label + "</a>");
-  assert.match(result, /<th>A<\/th><th>B<\/th>/);
-  assert.match(result, /<ul><li>One<ul><li>Subitem/);
+  assert.match(result, /<th>A<\/th>\s*<th>B<\/th>/);
+  assert.match(result, /<ul>\s*<li>One\s*<ul>\s*<li>Subitem/);
   assert.match(result, /<a>The next note<\/a>/);
   assert.match(result, /&lt;script&gt;/);
   assert.match(result, /ac:name="language">mermaid/);

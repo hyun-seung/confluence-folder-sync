@@ -27,156 +27,137 @@ function storageCode(text, language) {
     '</ac:structured-macro>';
 }
 
-function tableCells(line) {
-  const table = line.trim().replace(/^\||(?<!\\)\|$/g, "");
-  const results = [];
-  let start = 0;
-  for (const token of table.matchAll(/\[\[[^\]\n]+\]\]|\x60+[^\x60]+\x60+|\\\||\|/g)) {
-    if (token[0] !== "|") continue;
-    results.push(table.slice(start, token.index));
-    start = token.index + 1;
-  }
-  results.push(table.slice(start));
-  return results.map(cell => cell.trim().replace(/\\\|/g, "|"));
-}
-
-const MARKDOWN_REF = /(!?)\[\[([^\]\n]+)\]\]|(!?)\[([^\]\n]*)\]\(\s*(?:<([^<>\n]+)>|([^\s()]+))(?:\s+"[^"\n]*")?\s*\)/g;
+const MARKDOWN_FORMAT_REVISION = 1;
 const IMAGE_FILE = /\.(png|jpe?g|gif|webp|svg|avif)$/i;
-
-function referenceTarget(match) {
-  if (match[2] !== undefined) {
+function textMarkup(value) { return xml(value); }
+const markdownParser = new CfsMarkdown.MarkdownIt({ html: false, xhtmlOut: true, breaks: true, linkify: false, typographer: false });
+markdownParser.inline.ruler.before("link", "cfs_wiki", (state, silent) => {
+  const match = /^(!?)\[\[([^\]\n]+)\]\]/.exec(state.src.slice(state.pos));
+  if (!match) return false;
+  if (!silent) {
     const [target, alias] = match[2].replace(/\\\|/g, "|").split("|", 2);
-    return { embed: Boolean(match[1]), target: target.trim(), label: alias || target.trim() };
+    const token = state.push("cfs_reference", "", 0);
+    token.meta = { embed: Boolean(match[1]), target: target.trim(), label: alias || target.trim() };
   }
-  return { embed: Boolean(match[3]), target: match[5] ?? match[6], label: match[4] };
+  state.pos += match[0].length;
+  return true;
+});
+markdownParser.inline.ruler.before("text", "cfs_br", (state, silent) => {
+  const match = /^<br\s*\/?\s*>/i.exec(state.src.slice(state.pos));
+  if (!match) return false;
+  if (!silent) state.push("hardbreak", "br", 0);
+  state.pos += match[0].length;
+  return true;
+});
+function inlineText(tokens) {
+  return (tokens ?? []).map(token => token.type === "cfs_reference" ? token.meta.label :
+    token.type === "image" ? token.content : token.type === "softbreak" || token.type === "hardbreak" ? " " :
+      token.children ? inlineText(token.children) : token.nesting ? "" : token.content).join("");
 }
-
-function textMarkup(value) {
-  return xml(value)
-    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
-    .replace(/~~([^~\n]+)~~/g, "<s>$1</s>");
+function tableWikiPipes(source) {
+  const lines = source.split("\n");
+  const codeLines = new Set();
+  for (const token of markdownParser.parse(source, {})) if (["fence", "code_block"].includes(token.type)) {
+    for (let line = token.map[0]; line < token.map[1]; line++) codeLines.add(line);
+  }
+  for (let i = 1; i < lines.length; i++) {
+    if (codeLines.has(i) || !/^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(lines[i])) continue;
+    if (!lines[i - 1].includes("|")) continue;
+    for (let row = i - 1; row < lines.length && lines[row].trim() && lines[row].includes("|") && !codeLines.has(row); row++) {
+      lines[row] = lines[row].split(/(\x60+[^\x60]*\x60+)/g).map((part, index) => index % 2 ? part :
+        part.replace(/\[\[[^\]\n]+\]\]/g, wiki => wiki.replace(/(?<!\\)\|/g, "\\|"))).join("");
+    }
+  }
+  return lines.join("\n");
 }
-
 function markdownLines(markdown, visitor) {
   const source = markdown.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").replace(/^---[ \t]*\n[\s\S]*?\n---[ \t]*(?:\n|$)/, "");
-  const units = [];
-  const fencePattern = /^\s{0,3}([~]{3,}|\x60{3,})(.*)$/;
-  let fence;
-  let code = [];
-  for (const line of source.split("\n")) {
-    const marker = fencePattern.exec(line);
-    if (fence) {
-      if (marker && marker[1][0] === fence.mark[0] && marker[1].length >= fence.mark.length && !marker[2].trim()) {
-        units.push({ code: code.join("\n"), language: fence.language });
-        code = [];
-        fence = null;
-      } else {
-        code.push(line);
+  const tokens = markdownParser.parse(tableWikiPipes(source), {});
+  const stack = [];
+  const anchors = new Map();
+  const reserved = new Set(tokens.flatMap((token, index) => token.type === "heading_open" ? [localSlug(inlineText(tokens[index + 1]?.children))] : []));
+  const used = new Set();
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.type === "heading_open") {
+      const slug = localSlug(inlineText(tokens[i + 1]?.children));
+      let count = anchors.get(slug) ?? 0;
+      let anchor = slug + (count ? "-" + count : "");
+      while (used.has(anchor) || (count && reserved.has(anchor))) anchor = slug + "-" + (++count);
+      anchors.set(slug, count + 1);
+      used.add(anchor);
+      token.meta = { anchor };
+    }
+    if (token.type === "blockquote_open") {
+      const inline = tokens[i + 2];
+      const match = inline?.type === "inline" && /^\[!([^\]\n]+)\]([+-]?)\s*([^\n]*)(?:\n|$)/.exec(inline.content);
+      let callout;
+      if (match) {
+        const kind = match[1].toLowerCase();
+        const known = { info: "info", note: "note", tip: "tip", success: "tip", warning: "warning", caution: "warning", danger: "warning", error: "warning" };
+        callout = { name: match[2] === "-" ? "expand" : known[kind] ?? "note", title: match[3] || kind };
+        token.meta = { callout };
+        inline.content = inline.content.slice(match[0].length);
+        inline.children = markdownParser.parseInline(inline.content, {})[0].children;
       }
-    } else if (marker) {
-      fence = { mark: marker[1], language: marker[2].trim().split(/\s+/)[0] };
-    } else {
-      units.push({ line });
-      if (visitor) {
-        for (const text of line.split(/(\x60+[^\x60]+\x60+)/g)) {
-          if (text.startsWith(String.fromCharCode(96))) continue;
-          for (const match of text.matchAll(MARKDOWN_REF)) visitor(referenceTarget(match));
-        }
+      stack.push(callout);
+    }
+    if (token.type === "blockquote_close") token.meta = { callout: stack.pop() };
+    if (visitor && token.children) {
+      for (const child of token.children) {
+        if (child.type === "cfs_reference") visitor(child.meta);
+        else if (child.type === "image") visitor({ embed: true, target: child.attrGet("src"), label: child.content });
+        else if (child.type === "link_open") visitor({ embed: false, target: child.attrGet("href"), label: "" });
       }
     }
   }
-  if (fence) units.push({ code: code.join("\n"), language: fence.language });
-  return units;
+  return tokens;
+}
+function renderInline(tokens, env) {
+  let result = "";
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.type === "cfs_reference") result += env.linkFor(token.meta);
+    else if (token.type === "image") result += env.linkFor({ embed: true, target: token.attrGet("src"), label: token.content });
+    else if (token.type === "link_open") {
+      let end = i + 1;
+      while (end < tokens.length && tokens[end].type !== "link_close") end++;
+      const children = tokens.slice(i + 1, end);
+      result += env.linkFor({ embed: false, target: token.attrGet("href"), label: inlineText(children), labelHtml: renderInline(children, env) });
+      i = end;
+    } else if (token.type === "code_inline") result += "<code>" + xml(token.content) + "</code>";
+    else if (token.type === "softbreak" || token.type === "hardbreak") result += "<br />";
+    else if (token.type === "text") result += xml(token.content).replace(/^(\[ \]|\[[xX]\])\s/, match => match[1] === " " ? "☐ " : "☑ ");
+    else if (["strong_open", "em_open", "s_open"].includes(token.type)) result += "<" + token.tag + ">";
+    else if (["strong_close", "em_close", "s_close"].includes(token.type)) result += "</" + token.tag + ">";
+  }
+  return result;
+}
+markdownParser.renderer.renderInline = (tokens, options, env) => renderInline(tokens, env);
+markdownParser.renderer.rules.fence = (tokens, index) => {
+  const token = tokens[index];
+  const code = token.content.replace(/\n$/, "");
+  const language = token.info.trim().split(/\s+/)[0];
+  const source = storageCode(code, language);
+  if (!token.cfsDiagram) return source + "\n";
+  return '<ac:image ac:alt="Mermaid diagram"><ri:attachment ri:filename="' + xml(token.cfsDiagram.name) + '" /></ac:image>' +
+    '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">Mermaid source</ac:parameter><ac:rich-text-body>' + source + '</ac:rich-text-body></ac:structured-macro>\n';
+};
+markdownParser.renderer.rules.code_block = (tokens, index) => storageCode(tokens[index].content.replace(/\n$/, ""), "") + "\n";
+markdownParser.renderer.rules.heading_open = (tokens, index) => "<" + tokens[index].tag + "><ac:structured-macro ac:name=\"anchor\"><ac:parameter ac:name=\"\">" + xml(tokens[index].meta.anchor) + "</ac:parameter></ac:structured-macro>";
+markdownParser.renderer.rules.blockquote_open = (tokens, index) => {
+  const callout = tokens[index].meta?.callout;
+  return callout ? '<ac:structured-macro ac:name="' + callout.name + '"><ac:parameter ac:name="title">' + xml(callout.title) + '</ac:parameter><ac:rich-text-body>\n' : "<blockquote>\n";
+};
+markdownParser.renderer.rules.blockquote_close = (tokens, index) => tokens[index].meta?.callout ? "</ac:rich-text-body></ac:structured-macro>\n" : "</blockquote>\n";
+function toStorage(units, linkFor) {
+  return markdownParser.renderer.render(units, markdownParser.options, { linkFor }).trim() || "<p></p>";
 }
 
-function toStorage(units, linkFor) {
-  const inline = (line) => line.split(/(\x60+[^\x60]+\x60+)/g).map((part, index) => {
-    if (index % 2) return "<code>" + xml(part.replace(/^\x60+|\x60+$/g, "")) + "</code>";
-    let output = "";
-    let offset = 0;
-    for (const match of part.matchAll(MARKDOWN_REF)) {
-      output += textMarkup(part.slice(offset, match.index));
-      output += linkFor(referenceTarget(match));
-      offset = match.index + match[0].length;
-    }
-    return output + textMarkup(part.slice(offset));
-  }).join("");
-
-  const listItem = /^(\s*)([-*+]|\d+[.)])\s+(.+)$/;
-  const separator = /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/;
-  const heading = /^ {0,3}(#{1,6})\s+(.+)$/;
-  const divider = /^ {0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/;
-  const isTable = i => units[i]?.line?.includes("|") && separator.test(units[i + 1]?.line ?? "");
-  const listType = match => /^[0-9]/.test(match[2]) ? "ol" : "ul";
-  const html = [];
-
-  function renderList(index, first) {
-    const indent = first[1].length;
-    const type = listType(first);
-    let output = "<" + type + ">";
-    for (; index < units.length;) {
-      const item = listItem.exec(units[index].line ?? "");
-      if (!item || item[1].length !== indent || listType(item) !== type) break;
-      output += "<li>" + inline(item[3]);
-      index++;
-      const next = listItem.exec(units[index]?.line ?? "");
-      if (next && next[1].length > indent && next[1].length - indent <= 8) {
-        const nested = renderList(index, next);
-        output += nested.html;
-        index = nested.index;
-      }
-      output += "</li>";
-    }
-    return { html: output + "</" + type + ">", index };
-  }
-
-  for (let i = 0; i < units.length;) {
-    const { line, code, language } = units[i];
-    if (code !== undefined) {
-      html.push(storageCode(code, language));
-      i++;
-    } else if (!line.trim()) {
-      i++;
-    } else if (isTable(i)) {
-      const headers = tableCells(line);
-      const row = (cells, tag) => "<tr>" + headers.map((_, index) =>
-        "<" + tag + ">" + inline(cells[index] ?? "") + "</" + tag + ">"
-      ).join("") + "</tr>";
-      let body = "<table><tbody>" + row(headers, "th");
-      i += 2;
-      while (units[i]?.line?.trim() && units[i].line.includes("|")) body += row(tableCells(units[i++].line), "td");
-      html.push(body + "</tbody></table>");
-    } else if (heading.test(line)) {
-      const [, marks, name] = heading.exec(line);
-      const tag = "h" + marks.length;
-      const anchor = localSlug(name);
-      const macro = anchor ? '<ac:structured-macro ac:name="anchor"><ac:parameter ac:name="">' +
-        xml(anchor) + '</ac:parameter></ac:structured-macro>' : "";
-      html.push("<" + tag + ">" + macro + inline(name) + "</" + tag + ">");
-      i++;
-    } else if (divider.test(line)) {
-      html.push("<hr />");
-      i++;
-    } else if (listItem.test(line)) {
-      const list = renderList(i, listItem.exec(line));
-      html.push(list.html);
-      i = list.index;
-    } else if (/^\s*>/.test(line)) {
-      const quoted = [];
-      while (/^\s*>/.test(units[i]?.line ?? "")) quoted.push(inline(units[i++].line.replace(/^\s*>\s?/, "")));
-      html.push("<blockquote><p>" + quoted.join("<br />") + "</p></blockquote>");
-    } else {
-      const parts = [inline(line)];
-      i++;
-      while (units[i]?.line?.trim() && !heading.test(units[i].line) && !divider.test(units[i].line)
-          && !listItem.test(units[i].line) && !/^\s*>/.test(units[i].line) && !isTable(i)) {
-        parts.push(inline(units[i++].line));
-      }
-      html.push("<p>" + parts.join("<br />") + "</p>");
-    }
-  }
-  return html.join("\n") || "<p></p>";
+// A formatter upgrade alone never rewrites a previously linked, unchanged note.
+function preservePublishedBody(entry, note) {
+  return entry?.migratedInputHash === note.inputHash || Boolean(entry?.bodyHash && entry?.inputHash === note.inputHash &&
+    (entry.formatRevision ?? 0) < MARKDOWN_FORMAT_REVISION);
 }
 
 function markdownText(text) {
@@ -202,6 +183,29 @@ function fromStorage(body, pageUrl, attachments = new Map()) {
     Array.from(node.children).find(child => child.namespaceURI === ns && child.localName === name);
   const contents = node => Array.from(node.childNodes).map(render).join("");
   const block = text => "\n\n" + text.trim() + "\n\n";
+  const headingAnchors = new Map();
+  const headingCounts = new Map();
+  const headingText = heading => {
+    const copy = heading.cloneNode(true);
+    for (const macro of [...copy.getElementsByTagNameNS(ac, "structured-macro")]) macro.remove();
+    return copy.textContent.trim();
+  };
+  for (const heading of parsed.querySelectorAll("h1,h2,h3,h4,h5,h6")) {
+    const slug = localSlug(headingText(heading));
+    headingCounts.set(slug, (headingCounts.get(slug) ?? 0) + 1);
+  }
+  for (const heading of parsed.querySelectorAll("h1,h2,h3,h4,h5,h6")) {
+    const text = headingText(heading);
+    // Keep the original remote URL when local Markdown cannot select a unique heading.
+    if (headingCounts.get(localSlug(text)) !== 1) continue;
+    headingAnchors.set(localSlug(text), text);
+    for (const macro of heading.getElementsByTagNameNS(ac, "structured-macro")) {
+      if (macro.getAttributeNS(ac, "name") === "anchor") {
+        const parameter = element(macro, ac, "parameter");
+        if (parameter) headingAnchors.set(parameter.textContent, text);
+      }
+    }
+  }
   function render(node) {
     if (node.nodeType === 3 || node.nodeType === 4) return markdownText(node.nodeValue);
     if (node.nodeType !== 1) return "";
@@ -214,21 +218,38 @@ function fromStorage(body, pageUrl, attachments = new Map()) {
         return block(codeFence(element(node, ac, "plain-text-body")?.textContent ?? "", (language?.textContent ?? "").replace(/[^a-z0-9+_-]/gi, "")));
       }
       const detail = element(node, ac, "rich-text-body");
+      if (["info", "note", "tip", "warning", "expand"].includes(name)) {
+        const title = Array.from(node.children).find(el => el.getAttributeNS(ac, "name") === "title")?.textContent;
+        const marker = name === "expand" ? "note]-" : name + "]";
+        const callout = "[!" + marker + (title ? " " + markdownText(title.replace(/\s+/g, " ")) : "");
+        return block((callout + (detail ? "\n" + contents(detail).trim() : "")).split("\n").map(line => "> " + line).join("\n"));
+      }
       return block("> Confluence macro: " + markdownText(name) + (detail ? "\n" + contents(detail) : ""));
     }
     if (tag === "script" || tag === "style" || tag === "iframe") return "";
     const text = contents(node);
     if (tag === "table") {
-      const rows = Array.from(node.getElementsByTagName("tr")).map(row =>
-        Array.from(row.children).map(cell => contents(cell).trim().replace(/\s*\n\s*/g, " ")));
+      const nodes = Array.from(node.getElementsByTagName("tr"));
+      if (node.querySelector("table,ol,ul,blockquote,pre,[rowspan]:not([rowspan='1']),[colspan]:not([colspan='1'])") ||
+          node.getElementsByTagNameNS(ac, "structured-macro").length ||
+          nodes.some(row => row.children.length !== nodes[0]?.children.length)) {
+        return block(codeFence(new XMLSerializer().serializeToString(node), "html"));
+      }
+      const rows = nodes.map(row => Array.from(row.children).map(cell =>
+        contents(cell).trim().replace(/(?<!\\)\|/g, "\\|").replace(/\n{2,}/g, "\n").replace(/\n/g, "<br />")));
       if (!rows.length) return "";
-      rows.splice(1, 0, rows[0].map(() => "---"));
+      rows.splice(1, 0, Array.from(nodes[0].children, cell => {
+        const align = /text-align:\s*(left|right|center)/i.exec(cell.getAttribute("style") ?? "")?.[1];
+        return align === "left" ? ":---" : align === "right" ? "---:" : align === "center" ? ":---:" : "---";
+      }));
       return block(rows.map(row => "| " + row.join(" | ") + " |").join("\n"));
     }
     if (tag === "ol" || tag === "ul") {
+      const start = /^\d+$/.test(node.getAttribute("start") ?? "") ? Number(node.getAttribute("start")) : 1;
       return block(Array.from(node.children).map((item, index) => {
-        const lines = contents(item).trim().split("\n");
-        return (tag === "ol" ? (index + 1) + ". " : "- ") + lines.map((line, n) => n ? "    " + line : line).join("\n");
+        const lines = contents(item).trim().replace(/\n{3,}/g, "\n\n").replace(/^☐ /, "[ ] ").replace(/^☑ /, "[x] ").split("\n");
+        const prefix = tag === "ol" ? (start + index) + ". " : "- ";
+        return prefix + lines.map((line, n) => n ? " ".repeat(prefix.length) + line : line).join("\n");
       }).join("\n"));
     }
     if (tag === "a" || tag === "link" || tag === "image" || tag === "img") {
@@ -237,19 +258,32 @@ function fromStorage(body, pageUrl, attachments = new Map()) {
       const imageUrl = element(node, ri, "url");
       const linkBody = element(node, ac, "link-body") || element(node, ac, "plain-text-link-body");
       const label = (linkBody ? contents(linkBody) : text).trim() ||
-        markdownText(attachment?.getAttributeNS(ri, "filename") || targetPage?.getAttributeNS(ri, "content-title") ||
-          node.getAttribute("alt") || node.getAttribute("href") || "Confluence attachment");
+        markdownText(node.getAttributeNS(ac, "alt") || node.getAttribute("alt") || attachment?.getAttributeNS(ri, "filename") ||
+          targetPage?.getAttributeNS(ri, "content-title") || node.getAttribute("href") || "Confluence attachment");
       const local = attachments.get(attachment?.getAttributeNS(ri, "filename"));
       if (local) return (tag === "image" && local.image ? "!" : "") + "[" + label + "](<" + local.path + ">)";
       const anchor = node.getAttributeNS(ac, "anchor");
-      const url = webLink(node.getAttribute("href") || node.getAttribute("src") ||
-        imageUrl?.getAttributeNS(ri, "value") || (anchor ? "#" + anchor : pageUrl), pageUrl);
+      const pageId = targetPage?.getAttributeNS(ri, "content-id");
+      const raw = node.getAttribute("href") || node.getAttribute("src") || imageUrl?.getAttributeNS(ri, "value") ||
+        (pageId && /^\d+$/.test(pageId) ? new URL("/wiki/pages/viewpage.action?pageId=" + pageId, pageUrl).href :
+          !targetPage && anchor ? "#" + anchor : null);
+      const url = raw ? webLink(raw, pageUrl) : null;
+      if (url) {
+        const remote = new URL(url);
+        const current = new URL(pageUrl);
+        let fragment;
+        try { fragment = decodeURIComponent(remote.hash.slice(1)); } catch { fragment = ""; }
+        if (remote.origin === current.origin && remote.pathname === current.pathname && remote.search === current.search && headingAnchors.has(fragment)) {
+          return "[" + label + "](<#" + encodeURIComponent(headingAnchors.get(fragment)) + ">)";
+        }
+      }
       return url ? "[" + label + "](<" + url + ">)" : label;
     }
     if (/^h[1-6]$/.test(tag)) return block("#".repeat(Number(tag[1])) + " " + text);
     if (tag === "p" || tag === "div") return block(text);
     if (tag === "strong" || tag === "b") return "**" + text + "**";
     if (tag === "em" || tag === "i") return "*" + text + "*";
+    if (tag === "s" || tag === "del" || tag === "strike") return "~~" + text + "~~";
     if (tag === "code") {
       const marker = String.fromCharCode(96);
       const raw = node.textContent;

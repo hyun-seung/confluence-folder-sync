@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 import zipfile
 
-FILES = ('main.js', 'manifest.json', 'styles.css', 'README.md', 'README.ko.md', 'CHANGELOG.md', 'LICENSE')
+FILES = ('main.js', 'manifest.json', 'styles.css', 'README.md', 'README.ko.md', 'CHANGELOG.md', 'LICENSE', 'THIRD_PARTY_NOTICES.txt')
 SEMVER = r'(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)'
 
 

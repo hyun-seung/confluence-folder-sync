@@ -1,7 +1,7 @@
 {
   "id": "confluence-folder-sync",
   "name": "Confluence Folder Sync",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "minAppVersion": "1.14.0",
   "description": "Publish a vault folder to Confluence Cloud and preview or import changes.",
   "author": "Confluence Folder Sync contributors",

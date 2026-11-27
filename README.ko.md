@@ -9,7 +9,7 @@ PC의 Obsidian 보관함과 Confluence Cloud를 연결하는 데스크톱 플러
 ## 설치
 
 1. [Releases](https://github.com/hyun-seung/confluence-folder-sync/releases)에서 최신 릴리스을 엽니다.
-2. [confluence-folder-sync-0.8.0.zip](https://github.com/hyun-seung/confluence-folder-sync/releases/download/0.8.0/confluence-folder-sync-0.8.0.zip)을 내려받고 압축을 풉니다. 안에 있는 `confluence-folder-sync` 폴더를 보관함의 `.obsidian/plugins/`에 넣습니다. macOS Finder에서는 `Command + Shift + .`으로 숨김 폴더를 표시할 수 있습니다.
+2. [confluence-folder-sync-0.9.0.zip](https://github.com/hyun-seung/confluence-folder-sync/releases/download/0.9.0/confluence-folder-sync-0.9.0.zip)을 내려받고 압축을 풉니다. 안에 있는 `confluence-folder-sync` 폴더를 보관함의 `.obsidian/plugins/`에 넣습니다. macOS Finder에서는 `Command + Shift + .`으로 숨김 폴더를 표시할 수 있습니다.
 3. 최종 경로가 `.obsidian/plugins/confluence-folder-sync/main.js`인지 확인합니다. 같은 폴더에 `manifest.json`과 `styles.css`도 있어야 합니다. ZIP 대신 릴리스의 개별 파일 3개를 직접 내려받아 같은 경로에 넣어도 됩니다.
 4. Obsidian의 **설정 → 커뮤니티 플러그인**에서 **Confluence Folder Sync**를 활성화합니다. Obsidian Desktop 1.14 이상이 필요합니다.
 
@@ -136,12 +136,23 @@ GitHub가 자동 생성한 **Source code (zip)**은 개발용 소스 압축파�
 | 연결 오류 HTTP 401·403 | 계정 이메일, 선택한 토큰의 유효성·범위와 대상 폴더 접근 권한을 확인하세요. 토큰을 이슈나 화면 캡처에 넣지 마세요. |
 | 첨부파일 전송 실패 | 현재 제한은 파일당 25 MiB입니다. 허용하지 않은 호스트나 크기가 맞지 않는 전송은 차단합니다. 원본을 보존하고 오류를 확인하세요. |
 | 자동 발행이 동작하지 않음 | Obsidian 실행 중 **발행 허용**, **자동 변경 확인**, 별도 확인한 **자동 발행**이 켜져 있어야 합니다. 신규·이동·충돌·미완료 작업은 수동 검토합니다. |
-| Mermaid가 코드로 보임 | 0.6.0은 Mermaid 소스를 코드 매크로에 발행합니다. 로컬 이미지 렌더링은 로드맵 항목입니다. |
+| Mermaid가 코드로 보임 | 기본은 원본 코드입니다. 설정의 **Mermaid 발행 방식 → 로컬 이미지와 원본 코드**를 선택하고 발행 검토를 진행하세요. 잘못되거나 지원하지 않는 문법은 쓰기 전에 차단합니다. |
 
 ## 지원 범위와 한계
 
-- 제목, 기본 강조, 목록, Markdown 표, 코드 블록, 지정한 원본 폴더 내부 링크와 참조된 첨부파일을 발행합니다. 첨부파일은 개당 최대 25 MiB입니다.
-- Mermaid는 Confluence 코드 매크로에 소스로 발행합니다. Confluence에서 자동으로 다이어그램으로 그리는 기능은 제공하지 않습니다. Markdown 확장 문법과 Confluence의 모든 편집 기능을 완전히 변환하지는 못합니다.
+- 서식·중복을 고려한 제목 앵커, 강조·취소선, 중첩 목록·시작 번호, 정적인 작업 체크 표시, 정렬이 있는 Markdown 표, 중첩 코드 블록과 원본 폴더 내부 링크를 지원합니다. 참조 첨부파일은 개당 최대 25 MiB입니다. 선두 YAML frontmatter는 발행하지 않으며 raw HTML은 문자로, 외부 이미지는 링크로 처리합니다.
+- info/note/tip/warning Callout은 표준 Confluence 매크로로 변환합니다. success는 tip, caution/danger/error는 warning, 다른 종류는 note로 정규화하며 접힌 Callout은 expand 매크로로 발행합니다. 가져올 때는 Callout으로 변환합니다. 사용자 지정 아이콘·색상과 상호작용하는 체크박스는 보존하지 않습니다.
+- 위 구조와 같은 페이지의 제목 링크를 역변환합니다. URL을 확인할 수 없는 제목 전용 페이지 참조는 이름을 문자로 남깁니다. 병합 셀·중첩 표·블록이 있는 복합 표는 임의로 평탄화하지 않고 storage HTML 코드 블록으로 보존해 수동 검토할 수 있게 합니다. 모든 편집 기능의 무손실 변환을 뜻하지 않습니다.
+
+### Mermaid 로컬 이미지
+
+**설정 → Mermaid 발행 방식 → 로컬 이미지와 원본 코드**를 선택하면 PC에서 PNG를 만듭니다. 방식 변경 시 자동 발행을 해제하므로 **발행 검토**에서 영향을 받는 문서를 확인하세요. 원본 노트는 읽기만 하며 Confluence에는 PNG 첨부파일과 접힌 원본 코드 매크로를 함께 보냅니다. 가져올 때도 이미지와 접힌 Callout 안의 Mermaid 코드를 모두 남깁니다. **원본 코드**로 바꾸면 다음 승인한 발행에서 이미지 참조를 제거하지만 기존 첨부파일은 삭제하지 않습니다.
+
+번들 렌더러는 네트워크를 차단한 별도 출처의 sandbox에서 실행합니다. 부모 앱·Node 권한이 없는지 확인하고 sandbox 안에서 SVG를 검사한 뒤 PNG만 반환합니다. 외부 렌더링 사이트·CDN·실행 중 패키지 다운로드를 사용하지 않습니다. flowchart·sequence·class를 왕복 시험하며 나머지 허용한 기본 종류는 문법과 렌더러 지원 범위에 따릅니다. 이미지 방식에서 HTML 라벨, 설정 directive/frontmatter, 상호작용 링크, 이미지·아이콘, 수식·외부 자원은 지원하지 않습니다. 원본 코드 방식에서는 해당 예시를 코드로 보존할 수 있습니다.
+
+상한은 20,000자·500줄·단어 토큰 600개·연결 연산자 200개·가로/세로 4,096px·800만 화소·PNG 8 MiB이며 비동기 대기 15초와 제한된 메모리 캐시를 사용합니다. 사전 제한으로 처리량을 줄이지만 같은 프로세스의 동기 레이아웃을 JavaScript 타이머로 강제 중단할 수는 없습니다. 큰 도표는 나누세요. PC별 글꼴 차이로 이미지 해시가 같다고 보장하지 않으므로 발행용 PC 하나를 지정하세요.
+
+업그레이드만으로 기존 연결 페이지를 일괄 재서식하지 않습니다. 원문·첨부 입력 해시가 발행 기준과 같으면 기존 본문을 유지하고, 입력이 바뀔 때 새 변환기를 적용합니다. 이전 버전 문서에서 원문은 같지만 첨부 인식이 달라지면 자동 발행을 켜 두었더라도 수동 검토 대상으로 남깁니다.
 - 가져오기는 별도 폴더에 새 페이지 본문과 첨부파일을 저장하고 크기를 확인합니다. 버전 비교와 선택 반영은 변환된 본문 텍스트를 대상으로 하며 첨부파일 변경은 보고서에 따로 표시합니다.
 - macOS의 Obsidian 1.14.5에서 0.6.0 설치, 비밀 저장소 인증과 한국어 관리 화면의 기존 연결 85개를 읽기 전용으로 확인했습니다. 이전 0.5.0의 발행 검토·이력 검증 근거도 유지합니다. 선택 발행·충돌 해결·복원·연결 관리 동작은 두 언어의 합성 시험으로 검증했으며 이전 네이티브 합성 첨부파일 가져오기 근거도 유지합니다. 추가로 macOS·Windows·Linux의 실제 Obsidian 1.14.5에서 합성 자료로 UI/API 로딩, SecretStorage 읽기·쓰기, 선택 반영·백업 복원, 바이너리 가져오기, 이동 이벤트와 플러그인 재로딩을 검증했습니다. 정확한 CI 근거는 [시험 안내](testing/README.ko.md)에 있습니다. Windows는 공식 배포 파일을 추출해 실행했으며 설치 프로그램 UI·OS 키체인 보장·Windows/Linux의 실제 Atlassian 인증은 이번 시험 범위에 포함하지 않습니다. 모바일은 지원하지 않습니다.
 
@@ -149,19 +160,19 @@ GitHub가 자동 생성한 **Source code (zip)**은 개발용 소스 압축파�
 
 읽기 전용 검토는 페이지 메타정보를 묶어 조회하고 확인 한 번 안에서 페이지·첨부 응답을 재사용합니다. 다음 검토와 쓰기 전 검사는 새 상태를 조회합니다. 연결당 REST 요청은 최대 4개이며 GET 재시도는 서버 대기 시간을 존중하고 60초 대기 한도를 적용합니다. POST·PUT·응답 불명 쓰기는 자동 재전송하지 않습니다. 세부 범위와 합성 측정은 [성능 비교 안내](testing/PERFORMANCE.md)를 참고하세요.
 
-`npm ci --ignore-scripts --offline --no-audit --no-fund`로 의존성이 없는 lockfile을 확인한 뒤 `npm run build`로 `main.js`를 생성하고 `npm test`로 빌드와 시험을 실행합니다. Node.js는 개발자에게만 필요합니다.
+`npm ci --ignore-scripts --no-audit --no-fund`로 고정한 빌드 의존성을 설치한 뒤 `npm run build`로 `main.js`를 생성하고 `npm test`로 빌드와 시험을 실행합니다. Markdown·Mermaid 라이브러리는 `main.js`에 포함합니다. Node.js와 빌드 의존성의 npm 다운로드는 개발자에게만 필요합니다. 번들 의존성의 전체 라이선스는 `main.js`와 `THIRD_PARTY_NOTICES.txt`에 포함합니다.
 
 공개 영문·한글 Chromium 시험과 임시 Obsidian 보관함의 실제 앱 시험은 [UI·네이티브 시험 안내](testing/README.ko.md)에 정리했습니다. 개발 시험용 의존성과 lockfile은 `testing/`에 분리하며 플러그인 배포 파일에 포함하지 않습니다.
 
-릴리스 태그는 `manifest.json`의 버전과 같고 `v` 접두사를 붙이지 않습니다. `versions.json`은 Obsidian 최소 버전을 기록합니다. 릴리스에는 `main.js`, `manifest.json`, `styles.css`를 개별 파일로 올리며, 수동 설치용 ZIP과 검증용 `SHA256SUMS.txt`를 함께 제공합니다. ZIP에는 플러그인 폴더와 설치 파일, 두 언어의 안내 문서와 `LICENSE`를 넣습니다.
+릴리스 태그는 `manifest.json`의 버전과 같고 `v` 접두사를 붙이지 않습니다. `versions.json`은 Obsidian 최소 버전을 기록합니다. 릴리스에는 `main.js`, `manifest.json`, `styles.css`를 개별 파일로 올리며, 수동 설치용 ZIP과 검증용 `SHA256SUMS.txt`를 함께 제공합니다. ZIP에는 플러그인 폴더와 설치 파일, 두 언어의 안내·변경 이력·`LICENSE`와 `THIRD_PARTY_NOTICES.txt`를 넣습니다.
 
 공식 제출에는 사용 안내, `LICENSE`, manifest와 일치하는 GitHub 릴리스가 필요하며 [Obsidian Community](https://community.obsidian.md/)에서 진행합니다. macOS·Windows·Linux의 네이티브 합성 시험을 완료했으며 세부 범위와 한계는 시험 안내에서 확인할 수 있습니다. 공개 플러그인 ID의 사용 가능 여부도 제출 전에 확인합니다. [공식 등록 안내](https://docs.obsidian.md/plugins/releasing/submit-plugin)를 참고하세요. 변경 이력과 검증 범위는 [CHANGELOG.md](CHANGELOG.md)에 기록합니다.
 
-CI는 오프라인 `npm ci`로 루트 lockfile을 확인하고 Linux·macOS·Windows에서 Node 시험 96개와 영문·한글 Chromium 시험을 실행합니다. 생성한 `main.js`와 커밋한 파일의 일치 및 배포 정보·패키징도 검사합니다. 별도 작업에서는 SHA256을 고정한 공식 Obsidian을 내려받아 Windows·Linux의 임시 합성 보관함에서 실행합니다. 분리된 시험용 의존성 설치에만 npm 레지스트리 접근이 필요하며 모든 Confluence 응답은 합성입니다. 유지관리자는 Node.js 26과 패키징용 Python 3을 사용하며 사용자는 둘 다 설치할 필요가 없습니다.
+CI는 설치 스크립트를 끄고 고정한 빌드 의존성을 설치하며 Linux·macOS·Windows에서 Node 시험 119개와 영문·한글 Chromium 시험을 실행합니다. 생성한 `main.js`와 커밋한 파일의 일치 및 배포 정보·패키징도 검사합니다. 별도 작업에서는 SHA256을 고정한 공식 Obsidian을 내려받아 Windows·Linux의 임시 합성 보관함에서 실행합니다. 빌드·시험 의존성 설치에는 npm 레지스트리 접근이 필요하지만 설치된 플러그인은 실행 중 패키지를 내려받지 않으며 모든 Confluence 응답은 합성입니다. 유지관리자는 Node.js 26과 패키징용 Python 3을 사용하며 사용자는 둘 다 설치할 필요가 없습니다.
 
-새 버전은 manifest·package·lockfile·versions·변경 이력과 설치 링크를 갱신하고 빌드·커밋한 뒤 정확한 `x.y.z` 태그를 푸시합니다. 릴리스 워크플로가 CI를 기다린 뒤 실행 파일 3개·두 언어의 안내·변경 이력·MIT 라이선스만 패키징하고 배포 파일에 빌드 출처 증명을 붙입니다. 초안을 만든 뒤 내려받은 파일·ZIP 허용 목록·서명 워크플로·원본 태그·커밋을 검증하고 공개합니다. 기존 릴리스 파일은 덮어쓰지 않습니다. 실패한 초안은 동일 커밋과 기존 파일이 모두 일치할 때 누락 파일만 추가하고 출처를 재검증해 재개합니다. 변경된 태그나 일치하지 않는 초안은 거절합니다. 일반 CI와 PR은 읽기 전용 권한이며 태그 릴리스 작업만 배포·출처 증명 권한을 사용합니다.
+새 버전은 manifest·package·lockfile·versions·변경 이력과 설치 링크를 갱신하고 빌드·커밋한 뒤 정확한 `x.y.z` 태그를 푸시합니다. 릴리스 워크플로가 CI를 기다린 뒤 실행 파일 3개·두 언어의 안내·변경 이력·MIT 라이선스·번들 의존성 고지를 패키징하고 배포 파일에 빌드 출처 증명을 붙입니다. 초안을 만든 뒤 내려받은 파일·ZIP 허용 목록·서명 워크플로·원본 태그·커밋을 검증하고 공개합니다. 기존 릴리스 파일은 덮어쓰지 않습니다. 실패한 초안은 동일 커밋과 기존 파일이 모두 일치할 때 누락 파일만 추가하고 출처를 재검증해 재개합니다. 변경된 태그나 일치하지 않는 초안은 거절합니다. 일반 CI와 PR은 읽기 전용 권한이며 태그 릴리스 작업만 배포·출처 증명 권한을 사용합니다.
 
-로컬 패키징 검사는 `python3 -m unittest discover -s tools -p 'test_*.py' -v`로 실행합니다. `python3 tools/release.py --tag 0.8.0 --output /tmp/confluence-folder-sync-0.8.0`로 새 패키지를 만듭니다. 같은 릴리스에서 배포 파일을 내려받고 체크섬을 확인한 뒤 `gh attestation verify main.js --repo hyun-seung/confluence-folder-sync --signer-workflow hyun-seung/confluence-folder-sync/.github/workflows/release.yml --source-ref refs/tags/0.8.0`로 출처를 확인합니다. 다른 파일도 각각 검사하며 정확한 커밋까지 고정하려면 `--source-digest <태그의 전체 커밋>`을 추가합니다. [GitHub 출처 증명 안내](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations)를 참고하세요.
+로컬 패키징 검사는 `python3 -m unittest discover -s tools -p 'test_*.py' -v`로 실행합니다. `python3 tools/release.py --tag 0.9.0 --output /tmp/confluence-folder-sync-0.9.0`로 새 패키지를 만듭니다. 같은 릴리스에서 배포 파일을 내려받고 체크섬을 확인한 뒤 `gh attestation verify main.js --repo hyun-seung/confluence-folder-sync --signer-workflow hyun-seung/confluence-folder-sync/.github/workflows/release.yml --source-ref refs/tags/0.9.0`로 출처를 확인합니다. 다른 파일도 각각 검사하며 정확한 커밋까지 고정하려면 `--source-digest <태그의 전체 커밋>`을 추가합니다. [GitHub 출처 증명 안내](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations)를 참고하세요.
 
 공개 자료에는 합성 예시를 사용합니다. 개인 설정, 보관함 문서, 토큰, 동기화 상태와 사내 경로는 로컬에 유지하세요.
 

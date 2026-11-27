@@ -2,6 +2,7 @@ const DEFAULT_SETTINGS = {
   folderUrl: "", source: "Confluence source", inbox: "Confluence inbox",
   email: "", secretId: "", allowPublish: false, language: "auto",
   autoCheck: false, autoPublish: false, autoMinutes: 5,
+  mermaidMode: "code",
 };
 
 class Confirmation extends Modal {
@@ -66,6 +67,11 @@ class SyncSettings extends PluginSettingTab {
         .onChange(value => plugin.configure("secretId", value ?? "")));
     text("Source vault folder", "Publish only notes and referenced files from this folder.", "source", "Project");
     text("Import vault folder", "Save previews and imported copies in a separate folder.", "inbox", "Confluence inbox");
+    new Setting(containerEl).setName(t("Mermaid publication"))
+      .setDesc(t("Render diagrams locally as PNG and keep their source. Image mode requires manual review; no external renderer is used."))
+      .addDropdown(dropdown => dropdown.addOption("code", t("Source code"))
+        .addOption("image", t("Local image and source")).setValue(settings.mermaidMode)
+        .onChange(async value => { await plugin.configure("mermaidMode", value); this.display(); }));
     new Setting(containerEl).setName(t("Enable publish")).setDesc(t("Allow explicit, confirmed uploads from this vault."))
       .addToggle(toggle => toggle.setValue(settings.allowPublish).onChange(value => plugin.configure("allowPublish", value)));
     new Setting(containerEl).setName(t("Connection")).addButton(button => button.setButtonText(t("Test connection"))
@@ -102,6 +108,7 @@ class SyncSettings extends PluginSettingTab {
 
 class ConfluenceFolderSync extends Plugin {
   async onload() {
+    mermaidRenderers.set(this.app, new LocalMermaid());
     const stored = await this.loadData() ?? {};
     this.data = { settings: { ...DEFAULT_SETTINGS, ...stored.settings }, profiles: stored.profiles ?? {},
       history: Array.isArray(stored.history) ? stored.history : [], backups: Array.isArray(stored.backups) ? stored.backups : [],
@@ -145,6 +152,7 @@ class ConfluenceFolderSync extends Plugin {
   onunload() {
     this.unloaded = true;
     this.automatic?.dispose();
+    mermaidRenderers.get(this.app)?.dispose();
   }
 
   t(message, values) {
@@ -207,7 +215,7 @@ class ConfluenceFolderSync extends Plugin {
       return;
     }
     this.data.settings[key] = value;
-    if (["folderUrl", "source", "email", "secretId"].includes(key) ||
+    if (["folderUrl", "source", "email", "secretId", "mermaidMode"].includes(key) ||
         (key === "allowPublish" && !value) || (key === "autoCheck" && !value)) {
       this.data.settings.autoPublish = false;
     }
@@ -251,6 +259,13 @@ class ConfluenceFolderSync extends Plugin {
   withConnection(task, options = {}) {
     return this.exclusive(async () => {
       const config = validatedConfig({ ...this.data.settings, language: this.language });
+      config.checkPreparation = () => {
+        if (this.unloaded) {
+          const error = new Error("The operation was cancelled. Completed changes are preserved.");
+          error.name = "AbortError";
+          throw error;
+        }
+      };
       const token = this.app.secretStorage.getSecret(config.secretId);
       if (!token) throw new Error("Choose a valid token in the plugin settings.");
       const client = new ConfluenceCloud(config, token, requestUrl, {
@@ -304,7 +319,7 @@ class ConfluenceFolderSync extends Plugin {
 
   preparePublication() {
     return this.withConnection(async ({ client, profile }) => {
-      const tree = await preparedNotes(this.app, client.config);
+      const tree = await preparedNotes(this.app, client.config, () => client.check?.());
       return publicationReview(this.app, client, profile, tree, await client.catalog());
     });
   }
@@ -325,7 +340,7 @@ class ConfluenceFolderSync extends Plugin {
           new Notice(result.summary);
           return;
         }
-        const tree = await preparedNotes(this.app, config);
+        const tree = await preparedNotes(this.app, config, () => client.check?.());
         const review = await publicationReview(this.app, client, profile, tree, catalog);
         new PublicationModal(this, review).open();
       });

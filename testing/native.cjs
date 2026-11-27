@@ -95,7 +95,8 @@ const root = resolve(__dirname, "..");
       throw error;
     }
     console.log("Native host: " + process.platform + ", " + await browser.version());
-    const result = await page.evaluate(scenario, { expectedVault: vault, source: readFileSync(join(root, "main.js"), "utf8") });
+    const result = await page.evaluate(scenario, { expectedVault: vault, source: readFileSync(join(root, "main.js"), "utf8"),
+      markdownScenario: readFileSync(join(__dirname, "markdown-scenario.cjs"), "utf8") });
     console.log(JSON.stringify(result));
     if (!result.passed) throw new Error("Native scenario did not pass.");
   } finally {

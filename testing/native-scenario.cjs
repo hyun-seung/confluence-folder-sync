@@ -1,9 +1,9 @@
 // Executed inside the real Electron renderer, using real Obsidian APIs and a fake remote.
-module.exports = async function nativeScenario({ expectedVault, source }) {
+module.exports = async function nativeScenario({ expectedVault, source, markdownScenario }) {
   const check = (value, message) => { if (!value) throw new Error(message); };
   check(app.vault.adapter.getBasePath().replace(/\\/g, "/") === expectedVault.replace(/\\/g, "/"), "Fixture vault guard failed");
   const api = window.__cfsTestApi;
-  const lib = new Function("require", "module", source + "\nreturn { SetupModal, verifySetup, setupDiagnostics, SyncDashboard, HistoryModal, incoming, digest, prepareLocalReview, applyLocalReview, publicationTarget };")(
+  const lib = new Function("require", "module", source + "\nreturn { xml, LocalMermaid, MERMAID_ERROR, markdownLines, toStorage, fromStorage, SetupModal, verifySetup, setupDiagnostics, SyncDashboard, HistoryModal, incoming, digest, prepareLocalReview, applyLocalReview, publicationTarget };")(
     name => { if (name !== "obsidian") throw new Error("Unexpected dependency"); return api; }, { exports: {} });
   let plugin = app.plugins.plugins["confluence-folder-sync"];
   check(plugin instanceof api.Plugin, "Production plugin did not load as a real Obsidian Plugin");
@@ -16,6 +16,9 @@ module.exports = async function nativeScenario({ expectedVault, source }) {
   const sourceFile = app.vault.getFileByPath("Docs/One.md");
   check(sourceFile && await app.vault.read(sourceFile) === original, "Initial fixture missing");
   const results = [];
+  const conversionFixture = { exports: {} };
+  new Function("module", markdownScenario)(conversionFixture);
+  results.push({ conversion: await conversionFixture.exports(lib) });
   for (const language of ["en", "ko"]) {
     plugin.data.settings = { ...plugin.data.settings, language, source: "Docs", inbox: "Incoming-" + language,
       folderUrl: "https://example.atlassian.net/wiki/spaces/DOC/folder/100", email: "fixture@example.com", secretId,

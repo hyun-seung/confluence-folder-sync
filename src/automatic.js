@@ -4,7 +4,7 @@ function automaticCandidates(review, profile, tree) {
     const entry = profile.pages["file:" + row.path];
     const note = notes.get(row.path);
     const baseline = entry?.inputHash ?? entry?.migratedInputHash;
-    return row.status === "Changed" && row.id && entry && note && !entry.renamedFrom &&
+    return row.status === "Changed" && !row.formatReviewRequired && row.id && entry && note && !entry.renamedFrom &&
       entry.bodyHash && entry.sourceHash && !entry.requiresReview && !entry.pending && !entry.creating && !row.dependencies.length &&
       (baseline ? baseline !== note.inputHash : entry.sourceHash !== note.sourceHash);
   }).map(row => row.path);
@@ -49,7 +49,7 @@ class AutomaticSync {
     this.lastAttempt = Date.now();
     try {
       const result = await plugin.operation("Automatic check", async ({ client, profile, save }) => {
-        const tree = await preparedNotes(plugin.app, client.config);
+        const tree = await preparedNotes(plugin.app, client.config, () => client.check?.());
         const catalog = await client.catalog();
         const reads = new ReviewReads(client);
         const review = await publicationReview(plugin.app, reads, profile, tree, catalog);

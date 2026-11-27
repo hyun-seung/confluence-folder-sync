@@ -1,5 +1,11 @@
 // English messages are stable translation keys. Interpolate values only after lookup.
 const KOREAN = {
+  "Review this attachment change manually after the Markdown upgrade.": "Markdown 업그레이드 이후의 첨부 변경은 수동으로 검토하세요.",
+  "Mermaid publication": "Mermaid 발행 방식",
+  "Render diagrams locally as PNG and keep their source. Image mode requires manual review; no external renderer is used.": "PC에서 PNG로 렌더링하고 원본 코드를 보존합니다. 이미지 방식은 수동 검토가 필요하며 외부 렌더러를 사용하지 않습니다.",
+  "Source code": "원본 코드",
+  "Local image and source": "로컬 이미지와 원본 코드",
+  "Mermaid could not be rendered locally. Check the syntax and limits, or select source code mode.": "Mermaid를 PC에서 렌더링하지 못했습니다. 문법·제한을 확인하거나 원본 코드 방식을 선택하세요.",
   "Connection setup and diagnostics": "연결 설정·진단",
   "Check a draft connection step by step without publishing or changing notes.": "발행하거나 문서를 변경하지 않고 연결 초안을 단계별로 확인합니다.",
   "Open setup wizard": "설정 마법사 열기",

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0
+
+- Bundle pinned markdown-it and Mermaid libraries with complete third-party license notices and reproducible esbuild packaging. Standard plugin installation still needs only the three runtime assets.
+- Preserve aligned tables, nested/ordered lists, static tasks, styled/duplicate heading anchors and standard callouts. Improve reverse conversion; retain merged/nested tables as fenced storage HTML and avoid invented links for unresolved title-only page references.
+- Add opt-in offline Mermaid PNG publishing with an expandable source code macro. The original note stays read only; import keeps both image and source. Image mode disables automatic publication until separately enabled.
+- Isolate rendering behind an opaque-origin, network-blocked sandbox with native-capability checks, input/output limits, sanitized SVG rasterization and frame cleanup. Generated content-addressed PNGs use the same attachment conflict, upload-intent and response-loss recovery safeguards.
+- Preserve unchanged prior publication baselines through formatter upgrades. Add 119 Node checks and browser/native round-trip, sandbox, cancellation and Mermaid fixtures using synthetic data only.
+- Markdown 표·중첩 목록·Callout·앵커와 역변환을 보강했습니다. Mermaid는 외부 서버 없이 선택적으로 이미지와 원본 코드를 함께 발행하며 원본 문서와 기존 연결을 보존합니다.
+
 ## 0.8.0
 
 - Add a bilingual four-step setup wizard from settings, dashboard and command palette. Draft edits stay separate until explicit save; existing mapping/history data is retained and publication/automatic options are disabled on save.

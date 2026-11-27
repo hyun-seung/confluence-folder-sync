@@ -12,7 +12,7 @@ function mappingInterrupted(entry) {
 }
 
 async function mappingInventory(app, client, profile) {
-  const tree = await preparedNotes(app, client.config);
+  const tree = await preparedNotes(app, client.config, () => client.check?.());
   const catalog = await client.catalog();
   const visible = pageTrails(catalog, client.config.folderId);
   const paths = new Set(tree.notes.map(note => note.path));
@@ -50,7 +50,7 @@ async function prepareMappingChange(app, client, data, request) {
   const state = await digest(JSON.stringify(data.profiles));
   const next = structuredClone(data.profiles);
   const destination = next[target];
-  const tree = await preparedNotes(app, config);
+  const tree = await preparedNotes(app, config, () => client.check?.());
   const catalog = await client.catalog();
   const trails = pageTrails(catalog, config.folderId);
   const locals = [];
@@ -178,6 +178,7 @@ async function prepareMappingChange(app, client, data, request) {
       entry.bodyHash = pending.bodyHash;
       entry.sourceHash = pending.sourceHash;
       entry.inputHash = pending.inputHash;
+      entry.formatRevision = pending.formatRevision ?? 0;
       entry.title = title;
       entry.parent = parent;
       entry.remoteAttachments = remote.inventory;
@@ -207,9 +208,9 @@ async function prepareMappingChange(app, client, data, request) {
       const path = config.source + key.slice(5 + oldSource.length);
       const note = noteAt(path);
       const remote = await pageAt(entry.id);
-      const previousInputs = await digest(JSON.stringify([note.sourceHash,
+      const previousInputs = await publicationInputHash(note.sourceHash,
         Array.from(note.assets, ([path, asset]) => [oldSource + path.slice(config.source.length), asset.hash])
-          .sort(([left], [right]) => left.localeCompare(right))]));
+          .sort(([left], [right]) => left.localeCompare(right)), note.diagrams);
       if (entry.sourceHash !== note.sourceHash || (entry.migratedInputHash ?? entry.inputHash) !== previousInputs ||
           entry.bodyHash !== remote.bodyHash ||
           entry.version !== remote.page.version.number || entry.title !== remote.page.title ||
@@ -239,7 +240,7 @@ async function prepareMappingChange(app, client, data, request) {
     delete destination.movedTo;
   } else throw new Error("Choose a connection management action.");
   // Remote reads can take time: re-read all local inputs after the last await.
-  const latest = await preparedNotes(app, config);
+  const latest = await preparedNotes(app, config, () => client.check?.());
   for (const local of locals) {
     const note = latest.notes.find(item => item.path === local.path);
     if (!note || note.inputHash !== local.inputHash || !editorMatches(app, local.path, note.original)) {

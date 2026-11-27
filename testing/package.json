@@ -4,7 +4,7 @@
   "private": true,
   "license": "MIT",
   "scripts": {
-    "test": "node ui.cjs",
+    "test": "node ui.cjs && node markdown.cjs",
     "test:native": "node native.cjs"
   },
   "devDependencies": {

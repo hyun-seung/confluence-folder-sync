@@ -2,19 +2,19 @@
 
 [English](README.md) · 한국어
 
-합성 문서·식별자·원격 응답만 사용합니다. 개인 보관함이나 실제 플러그인의 `data.json`을 이 디렉터리에 복사하지 마세요. 시험 의존성과 lockfile은 이곳에 분리하며 제품 실행 파일과 루트 빌드에는 npm 의존성이 없습니다.
+합성 문서·식별자·원격 응답만 사용합니다. 개인 보관함이나 실제 플러그인의 `data.json`을 이 디렉터리에 복사하지 마세요. 브라우저 시험 의존성과 lockfile은 이곳에 분리합니다. 루트 빌드 의존성은 별도로 고정하며 Markdown·Mermaid를 제품 실행 파일에 번들합니다. 실행 중 패키지 다운로드는 없습니다.
 
 저장소 루트에서 Node.js 26으로 실행합니다.
 
 ```sh
-npm ci --ignore-scripts --offline --no-audit --no-fund
+npm ci --ignore-scripts --no-audit --no-fund
 npm test
 npm ci --ignore-scripts --prefix testing --no-audit --no-fund
 npm test --prefix testing
 python3 -m unittest discover -s tools -p 'test_*.py' -v
 ```
 
-루트 설치는 오프라인이며 별도 시험 의존성 설치는 npm 레지스트리에 접근합니다. 설치 스크립트는 실행하지 않습니다. 소스를 바꾼 뒤 UI·네이티브 시험만 단독 실행한다면 먼저 `npm run build`를 실행하세요.
+루트 빌드·별도 시험 의존성 설치는 npm 레지스트리에 접근합니다. 설치 스크립트는 실행하지 않습니다. 소스를 바꾼 뒤 UI·네이티브 시험만 단독 실행한다면 먼저 `npm run build`를 실행하세요.
 
 ## Chromium 합성 UI
 
@@ -53,3 +53,5 @@ push·PR마다 세 운영체제의 Node·Chromium 시험과 Windows·Linux의 �
 0.7.0은 제한된 재시도·취소와 1,000개 문서의 조회 예산 검사를 포함해 Node 시험을 78개로 확장합니다. 합성 측정과 재현 방법은 [성능 시험 안내](PERFORMANCE.md)에 정리합니다.
 
 0.8.0은 Node 96개 시험과 두 언어의 브라우저·네이티브 설정 마법사 시험을 제공합니다. 초안 취소·읽기 전용 검사·실제 Obsidian SecretComponent·진단 비식별화·명시적 저장·토큰/설정/폴더 변경·검사 만료·저장 중 닫힘 복구를 검증합니다. 네이티브 원격 응답은 합성이며 사용자 클립보드는 변경하지 않습니다.
+
+0.9.0에는 Node 시험 119개와 브라우저·실제 앱의 공통 Markdown 왕복 시험을 추가합니다. 로컬 Mermaid PNG·동일 PC의 반복 결과·위험 문법 거절·부모/Node 격리와 이미지/소스 가져오기를 확인하고 브라우저에서 외부 요청 0회를 검사합니다. 업로드·응답 유실 복구는 합성 원격으로 시험하며 동기 레이아웃 강제 중단·PC 간 이미지 일치를 보장하지 않습니다.
