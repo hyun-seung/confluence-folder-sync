@@ -1,5 +1,5 @@
 // Runs only inside an opaque-origin sandbox with a deny-by-default CSP.
-import mermaid from "mermaid";
+const mermaid = globalThis.mermaid;
 
 function safeSvg(svg) {
   const externalUrl = text => [...text.matchAll(/url\s*\(([^)]*)\)/gi)]
@@ -29,7 +29,7 @@ window.addEventListener("message", async function receive(event) {
     const source = event.data.source;
     if (typeof source !== "string" || source.length > 20_000) throw new Error("source-limit");
     mermaid.initialize({ startOnLoad: false, securityLevel: "strict", htmlLabels: false,
-      theme: "default", fontFamily: "Arial, sans-serif", deterministicIds: true, deterministicIDSeed: "cfs-local-v1",
+      theme: "default", layout: "dagre", fontFamily: "Arial, sans-serif", deterministicIds: true, deterministicIDSeed: "cfs-local-v1",
       maxTextSize: 20_000, maxEdges: 200, suppressErrorRendering: true,
       flowchart: { htmlLabels: false }, themeVariables: { fontFamily: "Arial, sans-serif" } });
     const { svg } = await mermaid.render("cfs-diagram", source, document.body);

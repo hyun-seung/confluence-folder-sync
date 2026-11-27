@@ -1,4 +1,4 @@
-const MERMAID_RENDER_REVISION = "mermaid-12.3.0-local-v1";
+const MERMAID_RENDER_REVISION = "mermaid-tiny-12.3.0-local-v1";
 const MERMAID_ERROR = "Mermaid could not be rendered locally. Check the syntax and limits, or select source code mode.";
 const mermaidRenderers = new WeakMap();
 
@@ -9,7 +9,7 @@ function checkMermaidSource(source) {
       source.split(/[^\p{L}\p{N}_]+/u).filter(Boolean).length > 600 ||
       (source.match(/-->|---|==>|-\.->|->>|-->>|<\|--|o--|\*--/g) ?? []).length > 200 ||
       /%%\{|^\s*---|<\/?[a-z!]|\b(?:href|image|icon|img|javascript|https?):|^\s*click\s|@\{|\$\$/im.test(source) ||
-      !/^\s*(?:%%[^\n]*\n\s*)*(?:flowchart|graph|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|gantt|pie|journey|gitGraph|mindmap|timeline|quadrantChart|requirementDiagram)\b/.test(source)) throw new SyncError(MERMAID_ERROR);
+      !/^\s*(?:%%[^\n]*\n\s*)*(?:flowchart|graph|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|gantt|pie|journey|gitGraph|timeline|quadrantChart|requirementDiagram)\b/.test(source)) throw new SyncError(MERMAID_ERROR);
 }
 
 class LocalMermaid {

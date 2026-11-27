@@ -27,7 +27,7 @@ function storageCode(text, language) {
     '</ac:structured-macro>';
 }
 
-const MARKDOWN_FORMAT_REVISION = 1;
+const MARKDOWN_FORMAT_REVISION = 2;
 const IMAGE_FILE = /\.(png|jpe?g|gif|webp|svg|avif)$/i;
 function textMarkup(value) { return xml(value); }
 const markdownParser = new CfsMarkdown.MarkdownIt({ html: false, xhtmlOut: true, breaks: true, linkify: false, typographer: false });

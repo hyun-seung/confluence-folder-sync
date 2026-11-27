@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.2
+
+- Replace the full renderer with the official same-version Mermaid Tiny distribution, retaining offline sandbox rendering, source code and vendor notices. Keep the runtime below a 5,000,000-byte build budget to resolve the official Obsidian Sync Standard size warning.
+- Use Dagre layout; image mode excludes mindmaps, architecture diagrams, math and ELK. Source code mode preserves unsupported diagrams. Unchanged source with a changed pre-upgrade rendering input remains manual review.
+- 경량 공식 Mermaid 배포판으로 실행 파일 크기를 줄여 Obsidian Sync Standard 경고를 해결합니다. 네트워크 차단·원본 코드·라이선스 고지와 기존 문서를 보존합니다.
+
 ## 0.9.1
 
 - Discover bundled dependency licenses by their actual filename casing on Linux. The 0.9.0 tag failed CI before publishing any release assets; runtime bytes are unchanged by this build fix.

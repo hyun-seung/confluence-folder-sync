@@ -34,7 +34,7 @@ test('a formatter upgrade preserves an unchanged 0.8 page in both review and wri
   f.bodies.set('Docs/One.md', '# One\nEdited');
   assert.equal((await f.review()).rows.find(row => row.path === 'Docs/One.md').status, 'Changed');
   await f.publish(await f.review(), ['Docs/One.md']);
-  assert.equal(entry.formatRevision, 1);
+  assert.equal(entry.formatRevision, 2);
 });
 test('image mode uses generated attachments without trying to read a synthetic vault file', async () => {
   const f = await diagramFixture();
@@ -114,7 +114,7 @@ test('a lost page response recovers PNG inventory and the new formatter baseline
   await f.publish(await f.review(), ['Docs/One.md']);
   const entry = f.profile.pages['file:Docs/One.md'];
   assert.equal(entry.pending, undefined);
-  assert.equal(entry.formatRevision, 1);
+  assert.equal(entry.formatRevision, 2);
   assert.equal(entry.remoteAttachments.length, 1);
   assert.equal(f.remote.stats.uploads, 1);
   assert.equal(f.remote.stats.updates, 1);
@@ -140,7 +140,7 @@ test('styled and duplicate multilingual heading anchors are stable', () => {
 for (const [label, source] of Object.entries({ directive: '%%{init:{}}%%\nflowchart LR\n A-->B',
   html: 'flowchart LR\n A[<script>]', url: 'flowchart LR\n click A "https://example.test"',
   size: 'flowchart LR\n' + 'a'.repeat(20_001), words: 'flowchart LR\n' + 'A '.repeat(601),
-  edges: 'flowchart LR\n' + 'A-->'.repeat(201) + 'B' })) {
+  edges: 'flowchart LR\n' + 'A-->'.repeat(201) + 'B', unsupported: 'mindmap\n root' })) {
   test('Mermaid preflight rejects ' + label, () => assert.throws(() => lib.checkMermaidSource(source), { message: lib.MERMAID_ERROR }));
 }
 

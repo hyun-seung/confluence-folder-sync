@@ -24,7 +24,7 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm test
       - name: Verify reproducible committed runtime
-        run: git diff --exit-code -- main.js
+        run: git diff --exit-code -- main.js THIRD_PARTY_NOTICES.txt
   packaging:
     runs-on: ubuntu-latest
     timeout-minutes: 10
